@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Data (downloaded by 00_prepare_data.py)
+data/
+
+# Model outputs and checkpoints
+outputs/
+*.pt
+*.bin
+*.safetensors
+
+# Weights & Biases
+wandb/
+
+# Environment variables
+.env
+
+# OS
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/

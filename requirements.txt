@@ -1,0 +1,25 @@
+# Core
+torch>=2.1.0
+transformers>=4.51.0
+datasets>=2.14.0
+accelerate>=0.25.0
+peft>=0.7.0
+
+# Training (TRL for SFT + GRPO)
+trl>=0.15.0
+wandb>=0.16.0
+
+# Flash attention (optional but recommended)
+flash-attn>=2.5.0
+
+# API clients
+anthropic>=0.40.0
+
+# Evaluation
+numpy>=1.24.0
+pandas>=2.0.0
+tqdm>=4.65.0
+
+# Utilities
+jsonlines>=4.0.0
+pyyaml>=6.0

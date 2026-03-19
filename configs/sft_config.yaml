@@ -1,0 +1,35 @@
+# SFT Training Configuration for Qwen3-1.7B-Base
+
+# Model
+model_name_or_path: Qwen/Qwen3-1.7B-Base
+torch_dtype: bfloat16
+attn_implementation: flash_attention_2
+
+# Training
+num_train_epochs: 3
+per_device_train_batch_size: 4
+per_device_eval_batch_size: 8
+gradient_accumulation_steps: 4
+learning_rate: 2.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+weight_decay: 0.01
+max_grad_norm: 1.0
+
+# Sequence lengths
+max_seq_length: 2048
+
+# Optimization
+bf16: true
+gradient_checkpointing: true
+optim: adamw_torch
+
+# Logging
+logging_steps: 10
+eval_steps: 100
+save_steps: 500
+save_total_limit: 3
+
+# Misc
+seed: 42
+dataloader_num_workers: 4
