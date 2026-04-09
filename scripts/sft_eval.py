@@ -1,0 +1,451 @@
+#!/usr/bin/env python3
+"""Evaluate SFT checkpoint on MATH-500: pass@1 (greedy) and pass@8 (sampling).
+
+Adapted from 06_math500_eval.py to evaluate an SFT checkpoint and report delta
+vs the base model baseline (31.6% pass@1).
+
+Dataset: HuggingFaceH4/MATH-500
+  Fields: problem, solution, subject, level (int 1-5), answer (pre-extracted)
+
+Outputs:
+  outputs/sft_eval_results.jsonl          — per-example results
+  outputs/sft_eval_results_summary.json   — summary statistics
+"""
+
+import argparse
+import json
+import logging
+import os
+import re
+import sys
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+
+import torch
+from datasets import load_dataset
+from tqdm import tqdm
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+os.environ["WANDB_DISABLED"] = "true"
+
+# ---------------------------------------------------------------------------
+# math-verify (primary evaluator) — fallback to regex if not installed
+# ---------------------------------------------------------------------------
+
+try:
+    from math_verify import parse as mv_parse, verify as mv_verify_fn
+    from math_verify.parser import LatexExtractionConfig, ExprExtractionConfig
+
+    def answers_match(predicted: str, expected: str) -> bool:
+        """Compare with math-verify (ANTLR4/SymPy). Falls back to regex on error."""
+        if not predicted or not expected:
+            return False
+        try:
+            gold = mv_parse(f"${expected}$")
+            ans = mv_parse(f"${predicted}$")
+            if gold and ans:
+                return bool(mv_verify_fn(gold, ans))
+        except Exception:
+            pass
+        # Fallback: string normalisation
+        return _normalize(predicted) == _normalize(expected)
+
+    MATH_VERIFY_AVAILABLE = True
+
+except ImportError:
+    MATH_VERIFY_AVAILABLE = False
+
+    def answers_match(predicted: str, expected: str) -> bool:  # type: ignore[misc]
+        """Fallback regex-based comparison (math-verify not installed)."""
+        p = _normalize(predicted)
+        e = _normalize(expected)
+        if p == e:
+            return True
+        try:
+            return abs(float(p) - float(e)) < 1e-6
+        except (ValueError, TypeError):
+            pass
+        return p.lower() == e.lower()
+
+
+def _normalize(s: str) -> str:
+    s = s.strip()
+    s = re.sub(r"\.0+$", "", s)
+    s = s.replace(",", "")
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+# ---------------------------------------------------------------------------
+# Answer extraction
+# ---------------------------------------------------------------------------
+
+def extract_boxed(text: str) -> str:
+    """Extract content from the last \\boxed{...} in text, handling nested braces."""
+    idx = text.rfind("\\boxed{")
+    if idx == -1:
+        return ""
+
+    start = idx + len("\\boxed{")
+    depth = 1
+    result = []
+    for ch in text[start:]:
+        if ch == "{":
+            depth += 1
+            result.append(ch)
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                break
+            result.append(ch)
+        else:
+            result.append(ch)
+    return "".join(result).strip()
+
+
+# ---------------------------------------------------------------------------
+# Prompting
+# ---------------------------------------------------------------------------
+
+FEW_SHOT = """\
+Problem: What is the value of $2^3 - 3 \\cdot 2 + 1$?
+Solution: We compute $2^3 - 3 \\cdot 2 + 1 = 8 - 6 + 1 = 3$. The answer is $\\boxed{3}$.
+
+Problem: If $x + y = 10$ and $x - y = 4$, what is $xy$?
+Solution: Adding the equations gives $2x = 14$, so $x = 7$ and $y = 3$. Thus $xy = 7 \\cdot 3 = 21$. The answer is $\\boxed{21}$.
+
+Problem: A right triangle has legs of length 5 and 12. What is the hypotenuse?
+Solution: By the Pythagorean theorem, hypotenuse $= \\sqrt{5^2 + 12^2} = \\sqrt{25 + 144} = \\sqrt{169} = 13$. The answer is $\\boxed{13}$.
+
+Problem: How many ways can 3 books be arranged on a shelf from 5 distinct books?
+Solution: This is a permutation: $P(5,3) = 5 \\cdot 4 \\cdot 3 = 60$. The answer is $\\boxed{60}$.
+
+"""
+
+
+def create_prompt(problem: str) -> str:
+    return f"{FEW_SHOT}Problem: {problem}\nSolution:"
+
+
+# ---------------------------------------------------------------------------
+# Generation
+# ---------------------------------------------------------------------------
+
+def generate_samples(
+    model,
+    tokenizer,
+    prompt: str,
+    n: int,
+    temperature: float,
+    max_new_tokens: int,
+) -> list[str]:
+    """Generate n completions for a prompt. Greedy if n==1 or temperature==0."""
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
+    input_len = inputs.input_ids.shape[1]
+
+    if n == 1 or temperature == 0.0:
+        with torch.no_grad():
+            out = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+        return [tokenizer.decode(out[0][input_len:], skip_special_tokens=True)]
+
+    # Batch n samples in one forward pass
+    input_ids = inputs.input_ids.repeat(n, 1)
+    attention_mask = inputs.attention_mask.repeat(n, 1)
+    with torch.no_grad():
+        out = model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=temperature,
+            pad_token_id=tokenizer.pad_token_id,
+        )
+    return [tokenizer.decode(out[i][input_len:], skip_special_tokens=True) for i in range(n)]
+
+
+# ---------------------------------------------------------------------------
+# Scoring
+# ---------------------------------------------------------------------------
+
+def compute_pass_at_k(results: list[dict], sample_key: str) -> dict:
+    """
+    Compute pass@k where k = number of samples in sample_key.
+    A problem passes if ANY sample is correct.
+    """
+    level_correct = defaultdict(int)
+    level_total = defaultdict(int)
+    subject_correct = defaultdict(int)
+    subject_total = defaultdict(int)
+
+    for r in results:
+        level = r["level"]
+        subject = r["subject"]
+        any_correct = any(s["correct"] for s in r[sample_key])
+
+        level_total[level] += 1
+        subject_total[subject] += 1
+        if any_correct:
+            level_correct[level] += 1
+            subject_correct[subject] += 1
+
+    per_level = {}
+    for lvl in sorted(level_total.keys()):
+        per_level[str(lvl)] = {
+            "correct": level_correct[lvl],
+            "total": level_total[lvl],
+            "pass_at_k": round(level_correct[lvl] / level_total[lvl], 4),
+        }
+
+    per_subject = {}
+    for subj in sorted(subject_total.keys()):
+        per_subject[subj] = {
+            "correct": subject_correct[subj],
+            "total": subject_total[subj],
+            "pass_at_k": round(subject_correct[subj] / subject_total[subj], 4),
+        }
+
+    overall_correct = sum(level_correct.values())
+    overall_total = sum(level_total.values())
+    return {
+        "overall": round(overall_correct / overall_total, 4),
+        "overall_correct": overall_correct,
+        "overall_total": overall_total,
+        "per_level": per_level,
+        "per_subject": per_subject,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+BASE_PASS1 = 0.316  # Qwen3-1.7B-Base MATH-500 pass@1 baseline
+
+
+def main():
+    parser = argparse.ArgumentParser(description="MATH-500 pass@1 and pass@8 eval for SFT checkpoint")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="/workspace/qwen3-math-rlvr/outputs/sft_checkpoint",
+        help="Path to SFT checkpoint or HF model ID",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="/workspace/qwen3-math-rlvr/outputs/sft_eval_results.json",
+        help="Legacy output path (kept for backward compat); main outputs are JSONL + summary",
+    )
+    parser.add_argument(
+        "--output_jsonl",
+        type=str,
+        default="/workspace/qwen3-math-rlvr/outputs/sft_eval_results.jsonl",
+        help="Per-example output JSONL",
+    )
+    parser.add_argument(
+        "--output_summary",
+        type=str,
+        default="/workspace/qwen3-math-rlvr/outputs/sft_eval_results_summary.json",
+        help="Summary JSON output",
+    )
+    parser.add_argument(
+        "--data",
+        type=str,
+        default="HuggingFaceH4/MATH-500",
+        help="HuggingFace dataset ID or path for MATH-500 test set",
+    )
+    parser.add_argument("--max_samples", type=int, default=None, help="Limit problems (for debugging)")
+    parser.add_argument("--max_new_tokens", type=int, default=1024)
+    parser.add_argument("--n_samples", type=int, default=8, help="Samples per problem for pass@k")
+    parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature for pass@k")
+    parser.add_argument("--stats_only", action="store_true", help="Just print dataset stats and exit")
+    args = parser.parse_args()
+
+    # Set up file logging — log to both stdout and file
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"03a_sft_eval_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(str(log_file)),
+        ],
+    )
+    global logger
+    logger = logging.getLogger(__name__)
+    logger.info(f"Logging to {log_file}")
+    logger.info(
+        f"math-verify: {'available' if MATH_VERIFY_AVAILABLE else 'NOT installed — using regex fallback'}"
+    )
+
+    # Create output dirs
+    for path in [args.output, args.output_jsonl, args.output_summary]:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+    # -----------------------------------------------------------------------
+    # Step 1: Load dataset and report stats
+    # -----------------------------------------------------------------------
+    logger.info(f"Loading MATH-500 dataset: {args.data}")
+    ds = load_dataset(args.data, split="test")
+
+    if args.max_samples:
+        ds = ds.select(range(min(args.max_samples, len(ds))))
+
+    level_counts = defaultdict(int)
+    subject_counts = defaultdict(int)
+    for ex in ds:
+        level_counts[ex["level"]] += 1
+        subject_counts[ex["subject"]] += 1
+
+    logger.info(f"=== MATH-500 Dataset Stats ({len(ds)} problems) ===")
+    logger.info("By level:")
+    for lvl in sorted(level_counts.keys()):
+        logger.info(f"  Level {lvl}: {level_counts[lvl]:4d} problems")
+    logger.info("By subject:")
+    for subj in sorted(subject_counts.keys()):
+        logger.info(f"  {subj:<30s}: {subject_counts[subj]:4d} problems")
+
+    if args.stats_only:
+        return
+
+    # -----------------------------------------------------------------------
+    # Step 2+3: Load model and run eval
+    # -----------------------------------------------------------------------
+    logger.info(f"Loading model: {args.model}")
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+    )
+    model.eval()
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    results = []
+    logger.info(
+        f"Running eval: pass@1 (greedy) + pass@{args.n_samples} (temp={args.temperature})..."
+    )
+
+    for ex in tqdm(ds):
+        problem = ex["problem"]
+        expected = ex["answer"]   # pre-extracted, no \boxed{}
+        level = ex["level"]
+        subject = ex["subject"]
+        prompt = create_prompt(problem)
+
+        # pass@1: greedy
+        resp1 = generate_samples(
+            model, tokenizer, prompt, n=1, temperature=0.0, max_new_tokens=args.max_new_tokens
+        )[0]
+        pred1 = extract_boxed(resp1)
+        pass1_samples = [
+            {"response": resp1, "predicted": pred1, "correct": answers_match(pred1, expected)}
+        ]
+
+        # pass@8: sampling
+        resps8 = generate_samples(
+            model, tokenizer, prompt, n=args.n_samples,
+            temperature=args.temperature, max_new_tokens=args.max_new_tokens,
+        )
+        pass8_samples = []
+        for resp in resps8:
+            pred = extract_boxed(resp)
+            pass8_samples.append(
+                {"response": resp, "predicted": pred, "correct": answers_match(pred, expected)}
+            )
+
+        results.append({
+            "problem": problem,
+            "expected": expected,
+            "level": level,
+            "subject": subject,
+            "pass1": pass1_samples,
+            "pass8": pass8_samples,
+        })
+
+    # -----------------------------------------------------------------------
+    # Step 4: Score by level
+    # -----------------------------------------------------------------------
+    pass1_stats = compute_pass_at_k(results, sample_key="pass1")
+    pass8_stats = compute_pass_at_k(results, sample_key="pass8")
+
+    delta_pass1 = pass1_stats["overall"] - BASE_PASS1
+
+    logger.info("=== RESULTS ===")
+    logger.info(f"Model:          {args.model}")
+    logger.info(f"Pass@1 (greedy):  {pass1_stats['overall']:.2%}")
+    logger.info(f"Pass@8 (temp={args.temperature}): {pass8_stats['overall']:.2%}")
+    logger.info(f"Base pass@1:      {BASE_PASS1:.2%}")
+    logger.info(
+        f"Delta vs base:    {delta_pass1:+.2%}  "
+        f"({'↑ improvement' if delta_pass1 >= 0 else '↓ regression'})"
+    )
+    logger.info("By level:")
+    for lvl in sorted(pass1_stats["per_level"].keys(), key=int):
+        p1 = pass1_stats["per_level"][lvl]["pass_at_k"]
+        p8 = pass8_stats["per_level"][lvl]["pass_at_k"]
+        n = pass1_stats["per_level"][lvl]["total"]
+        logger.info(f"  Level {lvl} (n={n:3d}): pass@1={p1:.2%}  pass@8={p8:.2%}")
+    logger.info("By subject:")
+    for subj in sorted(pass1_stats["per_subject"].keys()):
+        p1 = pass1_stats["per_subject"][subj]["pass_at_k"]
+        p8 = pass8_stats["per_subject"][subj]["pass_at_k"]
+        n = pass1_stats["per_subject"][subj]["total"]
+        logger.info(f"  {subj:<30s} (n={n:3d}): pass@1={p1:.2%}  pass@8={p8:.2%}")
+
+    # -----------------------------------------------------------------------
+    # Step 5: Save outputs
+    # -----------------------------------------------------------------------
+    # Per-example JSONL
+    with open(args.output_jsonl, "w") as f:
+        for r in results:
+            f.write(json.dumps(r) + "\n")
+    logger.info(f"Per-example JSONL saved to {args.output_jsonl}")
+
+    # Summary JSON
+    summary = {
+        "model": args.model,
+        "evaluator": "math-verify" if MATH_VERIFY_AVAILABLE else "regex-fallback",
+        "n_samples_pass8": args.n_samples,
+        "temperature_pass8": args.temperature,
+        "dataset": args.data,
+        "dataset_stats": {
+            "total": len(ds),
+            "by_level": {str(k): v for k, v in sorted(level_counts.items())},
+            "by_subject": dict(sorted(subject_counts.items())),
+        },
+        "pass1": pass1_stats,
+        "pass8": pass8_stats,
+        "delta_vs_base": {
+            "base_model": "Qwen/Qwen3-1.7B-Base",
+            "base_pass1": BASE_PASS1,
+            "sft_pass1": pass1_stats["overall"],
+            "delta_pass1": round(delta_pass1, 4),
+        },
+    }
+    with open(args.output_summary, "w") as f:
+        json.dump(summary, f, indent=2)
+    logger.info(f"Summary JSON saved to {args.output_summary}")
+
+    # Legacy combined output (backward compat)
+    combined = {**summary, "results": results}
+    with open(args.output, "w") as f:
+        json.dump(combined, f, indent=2)
+    logger.info(f"Combined results saved to {args.output}")
+
+    logger.info("Done.")
+
+
+if __name__ == "__main__":
+    logger = logging.getLogger(__name__)
+    main()

@@ -1,0 +1,33 @@
+# GRPO Training Configuration — Qwen3-1.7B-Base MATH RLVR
+
+# Model
+torch_dtype: bfloat16
+attn_implementation: flash_attention_2
+
+# Training
+num_train_epochs: 1
+per_device_train_batch_size: 1       # A100 80GB — keep small; each step generates num_generations completions
+gradient_accumulation_steps: 8       # effective batch = 8
+learning_rate: 5.0e-7                # conservative for RL fine-tuning
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+weight_decay: 0.01
+max_grad_norm: 0.1                   # clip tightly for RL stability
+
+# Precision / memory
+bf16: true
+gradient_checkpointing: true
+
+# GRPO-specific
+num_generations: 8                   # G in GRPO — completions per prompt
+max_completion_length: 4096          # space for <think>...</think> + solution
+max_prompt_length: 1024
+temperature: 0.9                     # higher temp for diverse rollouts
+
+# Logging / checkpointing
+logging_steps: 10
+save_steps: 500
+save_total_limit: 1
+
+# Misc
+seed: 42

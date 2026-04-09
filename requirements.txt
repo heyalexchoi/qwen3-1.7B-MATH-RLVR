@@ -6,7 +6,7 @@ accelerate>=0.25.0
 peft>=0.7.0
 
 # Training (TRL for SFT + GRPO)
-trl>=0.15.0
+trl>=1.0.0
 wandb>=0.16.0
 
 # Flash attention (optional but recommended)
@@ -19,6 +19,7 @@ anthropic>=0.40.0
 numpy>=1.24.0
 pandas>=2.0.0
 tqdm>=4.65.0
+math-verify[antlr4_13_2]  # ANTLR4/SymPy math evaluator (primary answer checker)
 
 # Utilities
 jsonlines>=4.0.0

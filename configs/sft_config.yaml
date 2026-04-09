@@ -11,7 +11,7 @@ max_seq_length: 32768
 
 # Training
 num_train_epochs: 3
-per_device_train_batch_size: 2       # A40 48GB; reduce to 1 if OOM
+per_device_train_batch_size: 2       # A100 80GB
 per_device_eval_batch_size: 2
 gradient_accumulation_steps: 8       # effective batch = 16
 learning_rate: 2.0e-5
@@ -29,7 +29,7 @@ optim: adamw_torch
 logging_steps: 10
 eval_steps: 100
 save_steps: 500
-save_total_limit: 3
+save_total_limit: 1
 
 # Misc
 seed: 42
