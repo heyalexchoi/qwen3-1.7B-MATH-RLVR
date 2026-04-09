@@ -36,7 +36,7 @@ Target trajectory: base 31.6% → SFT ~45-55% → GRPO ~85-90% MATH-500 pass@1
       ↓
 [4a] GRPO eval — MATH-500 (sft_eval.py --model grpo_checkpoint) ⏳ pending  target ~85-90%
       ↓
-[5] Comparison table (final_eval.py)                          ⏳ pending  aggregates already-computed summaries, no re-inference
+[5] Comparison table (eval_comparison.py)                          ⏳ pending  aggregates already-computed summaries, no re-inference
 ```
 
 ---
@@ -74,7 +74,7 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 | `sft_train.py` | SFT on 7,154 correct traces; chat template; completion-only loss; file logging; checkpoint auto-resume; `--push_to_hub` | ⏳ Pending |
 | `sft_eval.py` | MATH-500 eval with math-verify on any checkpoint; used for base, SFT, and GRPO eval | ⏳ Pending |
 | `grpo_train.py` | GRPO with math-verify reward on MATH dataset; starts from sft_checkpoint; `--push_to_hub` | ⏳ Pending |
-| `final_eval.py` | Comparison aggregator — reads already-computed summary JSONs, prints base→SFT→GRPO table. No inference. | ⏳ Pending |
+| `eval_comparison.py` | Comparison aggregator — reads already-computed summary JSONs, prints base→SFT→GRPO table. No inference. | ⏳ Pending |
 
 ### Historical scripts (done, not re-run)
 - `generate_traces_claude.py` — early Claude-based trace generation, superseded

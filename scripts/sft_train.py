@@ -116,16 +116,18 @@ def main():
     )
     args = parser.parse_args()
 
-    # Set up file logging — log to both stdout and file
+    # Set up file logging — captures logging.* calls AND raw stderr (HF Trainer, CUDA warnings)
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"sft_train_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    _log_fh = open(str(log_file), "a", buffering=1)  # line-buffered
+    sys.stderr = _log_fh  # redirect raw stderr into the log file
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(str(log_file)),
+            logging.StreamHandler(_log_fh),  # logging.* calls also go to file
         ],
     )
     global logger
