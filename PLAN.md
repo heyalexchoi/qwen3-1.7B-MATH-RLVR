@@ -1,10 +1,28 @@
 # PLAN.md — Qwen3-1.7B Math RLVR
 
-Stateless execution plan. No pod IDs, cron IDs, ETAs, or "currently running" language.
-For active run details, see `STATUS.md`. For historical session notes, see `memory/math-rlvr.md`.
+Source of truth for plan, status, and active run details.
+For session history and decisions, see `memory/math-rlvr.md`.
 
-**Convention:** When a pipeline step or task completes, update its status here immediately (✅ / ⏳).
-Do not leave stale ⏳ entries for work that is done. PLAN.md is the source of truth on what's done.
+**Convention:** Update pipeline status (✅/⏳/🔄) and Current Run section as things change. No stale entries.
+
+---
+
+## Current Run
+
+**Phase:** SFT training — 🔄 RUNNING
+
+- **Pod**: `1tbygbeoiv5n9u` — A100 SXM 80GB, $1.49/hr, US-MD
+- **SSH**: `ssh -i ~/.runpod/ssh/RunPod-Key-Go -o StrictHostKeyChecking=no root@154.54.102.42 -p 12259`
+- **Started**: ~20:40 UTC 2026-04-09 — ETA ~01:00 UTC 2026-04-10
+- **Monitor cron**: `8475247b` — every 30min, auto-rsync + stop pod on completion
+- **HF push**: `heyalexchoi/qwen3-1.7b-math-sft` (pushes each checkpoint save)
+- **Log**: `tail -50 /workspace/qwen3-math-rlvr/logs/sft_launch.log`
+
+**After completion:** rsync checkpoint locally → verify → `runpodctl pod stop` (NOT remove) → run `sft_eval.py`
+
+> **runpodctl SSH readiness check:** SSH details are at `.ssh.ip` and `.ssh.port` in the JSON output
+> (NOT `runtime.ports`). Check with:
+> `runpodctl pod get <id> -o json | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('ssh',{}); print(s.get('ip'), s.get('port'))"`
 
 ---
 
