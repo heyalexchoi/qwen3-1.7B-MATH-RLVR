@@ -91,7 +91,7 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 | `math500_eval.py` | Legacy MATH-500 eval (weak evaluator); superseded by `sft_eval.py` | ✅ Done (legacy) |
 | `sft_train.py` | SFT on 7,154 correct traces; chat template; completion-only loss; file logging; checkpoint auto-resume; `--push_to_hub` | ⏳ Pending |
 | `sft_eval.py` | MATH-500 eval with math-verify on any checkpoint; used for base, SFT, and GRPO eval | ⏳ Pending |
-| `grpo_train.py` | GRPO with math-verify reward on MATH dataset; starts from sft_checkpoint; `--push_to_hub` | ⏳ Pending |
+| `grpo_train.py` | GRPO with math-verify reward on MATH dataset; starts from sft_checkpoint; `--push_to_hub` | ✅ Done |
 | `eval_comparison.py` | Comparison aggregator — reads already-computed summary JSONs, prints base→SFT→GRPO table. No inference. | ⏳ Pending |
 
 ### Historical scripts (done, not re-run)
@@ -102,7 +102,7 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 
 ## Open Tasks
 
-- [ ] **Base eval rescore**: Re-score existing `outputs/math500_results.json` with math-verify (responses already stored — no inference needed). Run: `python scripts/rescore_mathverify.py` adapted for that file, or write a quick one-off. Produces math-verify-consistent base number for comparison table.
+- [x] **Base eval rescore**: Done — 35.8% (was 31.6%). math-verify is strictly better: 21 flipped correct, 0 wrong.
 - [ ] **Review `docs/findings.md`**: May be stale relative to math-verify rescore results. Confirm or update.
 
 ---
@@ -143,6 +143,16 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 
 #### Pod Readiness Checks
 After `runpodctl pod create`, immediately set a cron (every 2 min, main session) to poll for SSH readiness and launch training. Do NOT use a blocking exec loop to wait — that locks the session.
+
+#### Training Launch Monitoring Strategy
+After launching training, check frequently at first to confirm it's actually running, then back off:
+- **30s** — confirm process is alive (`ps aux | grep sft_train`)
+- **1 min** — confirm first step completed without OOM (check log for `1/1275` or similar)
+- **5 min** — confirm a few steps in, note step time
+- **15 min** — optional sanity check
+- **30 min recurring** — normal cron monitor cadence
+
+Use cron at 30 min for the recurring monitor. The early checks (30s–5min) can be manual SSHs or a short-lived cron that self-removes after confirming training. Do NOT block the session with exec sleep loops.
 
 #### ⚠️ NEVER DELETE A POD WITHOUT BACKUP CONFIRMATION
 
@@ -195,6 +205,6 @@ Incident (2026-04-09): Subagent removed pod before rsyncing checkpoint-1000 (100
 
 | Phase | MATH-500 pass@1 | Notes |
 |-------|----------------|-------|
-| Base | 31.6% ✅ | Measured (weak eval; math-verify rescore pending) |
+| Base | 35.8% ✅ | math-verify rescored (was 31.6% with weak eval; +21 flipped correct, 0 wrong) |
 | Post-SFT | ~45–55% | Target |
 | Post-GRPO | ~85–90% | Target |

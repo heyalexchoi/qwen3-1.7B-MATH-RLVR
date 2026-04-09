@@ -61,6 +61,24 @@ def load_traces(data_path: str) -> Dataset:
             })
 
     logger.info(f"Loaded {len(examples)} correct examples ({skipped} skipped as incorrect)")
+
+    # Warn about long examples that may cause OOM when paired in a batch.
+    # At max_seq_length=32768, batch=2: logits = 2 × 32768 × 152064 × 2B ≈ 40GB (OOM on A100).
+    # Rough token estimate: chars / 3.5. Threshold = 28k tokens (~90% of 32768).
+    WARN_CHARS = int(28000 * 3.5)  # ~98k chars
+    long_examples = [
+        i for i, ex in enumerate(examples)
+        if len(ex["completion"][0]["content"]) + len(ex["prompt"][0]["content"]) > WARN_CHARS
+    ]
+    if long_examples:
+        logger.warning(
+            f"{len(long_examples)} examples exceed ~28k token estimate — "
+            f"may OOM with batch_size >= 2 at max_seq_length=32768. "
+            f"Indices: {long_examples[:10]}{'...' if len(long_examples) > 10 else ''}"
+        )
+    else:
+        logger.info("No examples exceed 28k token estimate. OOM risk from long sequences is low.")
+
     return Dataset.from_list(examples)
 
 

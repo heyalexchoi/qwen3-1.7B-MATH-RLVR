@@ -27,7 +27,7 @@ README stays lean — pointers, not details.
 |--------|--------|-------|
 | `00_prepare_data.py` | ✅ Done | GSM8K: 7,473 train / 1,319 test |
 | `01_baseline_eval.py` | ✅ Done | GSM8K: **74.6% pass@1** |
-| `06_math500_eval.py` | ✅ Done | MATH-500: **31.6% pass@1 / 58.4% pass@8** |
+| `06_math500_eval.py` | ✅ Done | MATH-500: **35.8% pass@1 / 58.4% pass@8** (math-verify; was 31.6% with weak eval) |
 | `07_qwen32b_traces.py` | ✅ Done | 7,490 MATH traces at MAX_TOKENS=32768 |
 | `08_rescore_traces.py` | ✅ Done | Regex normalizer fix; historical artifact |
 | `09_rescore_mathverify.py` | ✅ Done | math-verify rescore; **95.51% (7,154/7,490)** |
@@ -45,7 +45,7 @@ See `PLAN.md` for pending script specs (what each must do).
 
 ```
 [0] Data prep (GSM8K + MATH)                           ✅
-[1] Base eval — GSM8K + MATH-500                       ✅  31.6% MATH-500 pass@1
+[1] Base eval — GSM8K + MATH-500                       ✅  35.8% MATH-500 pass@1 (math-verify)
 [2] Generate Qwen3-32B traces (scripts 07→10)          ✅  7,154 correct traces
 [3] SFT on correct traces (script 03)                  ✅
 [3a] SFT eval — MATH-500 (script 03a)                  ⏳  target ~45-55%
@@ -140,7 +140,7 @@ python scripts/05_final_eval.py \
 
 | Phase | MATH-500 pass@1 | Notes |
 |-------|----------------|-------|
-| Base | **31.6%** ✅ | Measured |
+| Base | **35.8%** ✅ | math-verify (was 31.6% with weak eval) |
 | Post-SFT | ~45–55% | Target |
 | Post-GRPO | ~85–90% | Target |
 

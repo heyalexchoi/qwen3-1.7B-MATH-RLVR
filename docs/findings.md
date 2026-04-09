@@ -12,7 +12,7 @@
 ## MATH-500 Baseline
 
 ### Overall
-- **pass@1: 31.6%** (158/500)
+- **pass@1: 35.8%** (179/500) — math-verify rescored (was 31.6%/158 with weak eval; +21 flipped correct, 0 wrong)
 - **pass@8: 58.4%** (292/500) — temp=0.7, 8 samples per problem
 
 ### By Difficulty Level

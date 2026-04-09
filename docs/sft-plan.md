@@ -3,7 +3,7 @@
 **Status:** Ready to execute  
 **Last updated:** 2026-04-09  
 **Input:** 7,154 correct traces (math-verify rescored, 32k token rerun)  
-**Target:** ~45-55% MATH-500 pass@1 (up from 31.6% baseline)
+**Target:** ~45-55% MATH-500 pass@1 (up from 35.8% baseline, math-verify)
 
 ---
 
@@ -15,7 +15,7 @@ matching the inference-time format used in GRPO (Script 04).
 
 Pipeline position:
 ```
-Baseline (31.6%) → [THIS] SFT on 7,154 traces → GRPO/RLVR → Final eval
+Baseline (35.8%, math-verify) → [THIS] SFT on 7,154 traces → GRPO/RLVR → Final eval
 ```
 
 ---
@@ -226,7 +226,7 @@ rsync -av --progress \
 
 Run MATH-500 eval on the SFT checkpoint (Script 06 with `--model outputs/sft_checkpoint`).
 
-**Success criteria:** MATH-500 pass@1 > 40% (baseline: 31.6%)  
+**Success criteria:** MATH-500 pass@1 > 42% (baseline: 35.8%, math-verify)  
 **Target:** 45-55%
 
 If below 40%: check loss curves on wandb, consider re-run with different LR or more epochs.

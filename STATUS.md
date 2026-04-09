@@ -12,17 +12,18 @@
 
 - **Pod ID**: `1tbygbeoiv5n9u` — A100 SXM 80GB, $1.49/hr, US
 - **SSH**: `root@154.54.102.42 -p 12259` (key: `~/.runpod/ssh/RunPod-Key-Go`)
-- **Started**: ~20:40 UTC 2026-04-09
-- **ETA**: ~01:00 UTC 2026-04-10 (~4.25hr, 1275 steps @ ~12s/step)
-- **Config**: max_seq_length=32768, batch=2, grad_accum=8, adamw_torch, lr=2e-5 cosine, 3 epochs
+- **Started**: ~21:05 UTC 2026-04-09 (relaunch after OOM fix)
+- **ETA**: ~00:35 UTC 2026-04-10 (~3.5hr, 1275 steps @ ~10s/step)
+- **Config**: max_seq_length=32768, **batch=1**, grad_accum=16, adamw_torch, lr=2e-5 cosine, 3 epochs
+- **OOM fix**: batch=2 OOMed on logits (152k vocab × 32768 seq × 2 = ~40GB). Fixed to batch=1.
 - **HF push**: `heyalexchoi/qwen3-1.7b-math-sft` (hub_strategy="checkpoint" — pushes each save)
-- **Monitor cron**: `f03acfde` — fires every 30min into this topic
+- **Monitor cron**: `8475247b` — fires every 30min into this topic
 
 ## Log
 
 ```bash
 ssh -i ~/.runpod/ssh/RunPod-Key-Go -o StrictHostKeyChecking=no root@154.54.102.42 -p 12259 \
-  "tail -50 /workspace/qwen3-math-rlvr/logs/sft_launch.log"
+  "tail -50 /workspace/qwen3-math-rlvr/logs/sft_train_20260409_210518.log"
 ```
 
 ## Key Reminders
