@@ -123,6 +123,9 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 - All training scripts write to `logs/<script>_YYYYMMDD_HHMMSS.log` on the volume
 - Launch with `nohup python script.py > logs/launch.log 2>&1 &` to capture early crash output
 
+#### Pod Readiness Checks
+After `runpodctl pod create`, immediately set a cron (every 2 min, main session) to poll for SSH readiness and launch training. Do NOT use a blocking exec loop to wait — that locks the session.
+
 #### ⚠️ NEVER DELETE A POD WITHOUT BACKUP CONFIRMATION
 
 **This rule is non-negotiable. Deleting a pod destroys its volume permanently.**
