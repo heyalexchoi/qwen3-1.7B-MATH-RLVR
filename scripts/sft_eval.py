@@ -141,42 +141,41 @@ def generate_samples(
     temperature: float,
     max_new_tokens: int,
     eos_token_ids: list[int] | None = None,
+    top_p: float | None = None,
+    top_k: int | None = None,
 ) -> list[str]:
-    """Generate n completions for a prompt. Greedy if n==1 or temperature==0."""
+    """Generate n completions for a prompt.
+
+    NOTE: Do NOT use greedy decoding (temperature=0.0) with Qwen3 thinking-mode
+    models — it causes infinite repetition loops in <think> blocks. Use
+    temperature=0.6, top_p=0.95, top_k=20 per Qwen official inference guide.
+    """
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
     ).to(model.device)
     input_len = inputs.input_ids.shape[1]
 
-    # Use tokenizer.eos_token_id — for a Qwen3 chat checkpoint this is already
-    # set to <|im_end|> (the chat turn terminator). Don't hardcode token IDs.
     stop_ids = eos_token_ids if eos_token_ids else tokenizer.eos_token_id
-
-    if n == 1 or temperature == 0.0:
-        with torch.no_grad():
-            out = model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                eos_token_id=stop_ids,
-                pad_token_id=tokenizer.pad_token_id,
-            )
-        return [tokenizer.decode(out[0][input_len:], skip_special_tokens=True)]
 
     # Batch n samples in one forward pass
     input_ids = inputs.input_ids.repeat(n, 1)
     attention_mask = inputs.attention_mask.repeat(n, 1)
+    gen_kwargs = dict(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        max_new_tokens=max_new_tokens,
+        do_sample=True,
+        temperature=temperature,
+        eos_token_id=stop_ids,
+        pad_token_id=tokenizer.pad_token_id,
+    )
+    if top_p is not None:
+        gen_kwargs["top_p"] = top_p
+    if top_k is not None:
+        gen_kwargs["top_k"] = top_k
     with torch.no_grad():
-        out = model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=temperature,
-            eos_token_id=stop_ids,
-            pad_token_id=tokenizer.pad_token_id,
-        )
+        out = model.generate(**gen_kwargs)
     return [tokenizer.decode(out[i][input_len:], skip_special_tokens=True) for i in range(n)]
 
 
@@ -272,9 +271,11 @@ def main():
         help="HuggingFace dataset ID or path for MATH-500 test set",
     )
     parser.add_argument("--max_samples", type=int, default=None, help="Limit problems (for debugging)")
-    parser.add_argument("--max_new_tokens", type=int, default=1024)
+    parser.add_argument("--max_new_tokens", type=int, default=32768)
     parser.add_argument("--n_samples", type=int, default=8, help="Samples per problem for pass@k")
-    parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature for pass@k")
+    parser.add_argument("--temperature", type=float, default=0.6, help="Sampling temperature (Qwen thinking-mode recommended: 0.6)")
+    parser.add_argument("--top_p", type=float, default=0.95, help="Top-p sampling (Qwen thinking-mode recommended: 0.95)")
+    parser.add_argument("--top_k", type=int, default=20, help="Top-k sampling (Qwen thinking-mode recommended: 20)")
     parser.add_argument("--stats_only", action="store_true", help="Just print dataset stats and exit")
     args = parser.parse_args()
 
@@ -379,7 +380,10 @@ def main():
             logger.info(f"Resuming: {len(done_problems)} problems already scored, skipping them")
 
     logger.info(
-        f"Running eval: pass@1 (greedy) + pass@{args.n_samples} (temp={args.temperature})..."
+        f"Running eval: pass@{args.n_samples} (temp={args.temperature}, top_p={args.top_p}, top_k={args.top_k})..."
+    )
+    logger.info(
+        f"pass@1 will be computed as unbiased estimate c/n from the {args.n_samples} samples."
     )
 
     with open(args.output_jsonl, "a") as jsonl_f:
@@ -394,97 +398,95 @@ def main():
 
             prompt = create_prompt(problem, tokenizer)
 
-            # pass@1: greedy
-            resp1 = generate_samples(
+            # Generate n_samples with Qwen thinking-mode recommended settings.
+            # DO NOT use greedy (temperature=0) — causes infinite repetition loops.
+            # pass@1 is estimated as c/n (unbiased estimator, Chen et al. 2021).
+            resps = generate_samples(
                 model, tokenizer, prompt,
-                n=1, temperature=0.0, max_new_tokens=args.max_new_tokens,
-                eos_token_ids=stop_token_ids,
-            )[0]
-            pred1 = extract_boxed(resp1)
-            pass1_samples = [
-                {"response": resp1, "predicted": pred1, "correct": answers_match(pred1, expected)}
-            ]
-
-            # pass@8: sampling
-            resps8 = generate_samples(
-                model, tokenizer, prompt,
-                n=args.n_samples, temperature=args.temperature,
+                n=args.n_samples,
+                temperature=args.temperature,
                 max_new_tokens=args.max_new_tokens,
                 eos_token_ids=stop_token_ids,
+                top_p=args.top_p,
+                top_k=args.top_k,
             )
-            pass8_samples = []
-            for resp in resps8:
+            samples = []
+            for resp in resps:
                 pred = extract_boxed(resp)
-                pass8_samples.append(
+                samples.append(
                     {"response": resp, "predicted": pred, "correct": answers_match(pred, expected)}
                 )
 
+            n_correct = sum(s["correct"] for s in samples)
             result = {
                 "problem": problem,
                 "expected": expected,
                 "level": level,
                 "subject": subject,
-                "pass1": pass1_samples,
-                "pass8": pass8_samples,
+                "samples": samples,
+                # pass@1 unbiased estimate: c/n (Chen et al. 2021)
+                "pass1_estimate": n_correct / len(samples),
             }
             results.append(result)
             jsonl_f.write(json.dumps(result) + "\n")
             jsonl_f.flush()
 
     # -----------------------------------------------------------------------
-    # Step 4: Score by level
+    # Step 4: Score
+    # pass@8: any-correct over n_samples
+    # pass@1: unbiased estimate mean(c_i/n_i) — Chen et al. 2021
     # -----------------------------------------------------------------------
-    pass1_stats = compute_pass_at_k(results, sample_key="pass1")
-    pass8_stats = compute_pass_at_k(results, sample_key="pass8")
+    pass8_stats = compute_pass_at_k(results, sample_key="samples")
 
-    delta_pass1 = pass1_stats["overall"] - BASE_PASS1
+    pass1_estimates = [r["pass1_estimate"] for r in results]
+    pass1_overall = sum(pass1_estimates) / len(pass1_estimates) if pass1_estimates else 0.0
+
+    delta_pass1 = pass1_overall - BASE_PASS1
 
     logger.info("=== RESULTS ===")
-    logger.info(f"Model:          {args.model}")
-    logger.info(f"Pass@1 (greedy):  {pass1_stats['overall']:.2%}")
-    logger.info(f"Pass@8 (temp={args.temperature}): {pass8_stats['overall']:.2%}")
+    logger.info(f"Model:            {args.model}")
+    logger.info(f"Pass@1 (est c/n): {pass1_overall:.2%}  [unbiased from {args.n_samples} samples @ temp={args.temperature}]")
+    logger.info(f"Pass@8:           {pass8_stats['overall']:.2%}")
     logger.info(f"Base pass@1:      {BASE_PASS1:.2%}")
-    logger.info(
-        f"Delta vs base:    {delta_pass1:+.2%}  "
-        f"({'↑ improvement' if delta_pass1 >= 0 else '↓ regression'})"
-    )
+    direction = "↑ improvement" if delta_pass1 >= 0 else "↓ regression"
+    logger.info(f"Delta vs base:    {delta_pass1:+.2%}  ({direction})")
     logger.info("By level:")
-    for lvl in sorted(pass1_stats["per_level"].keys(), key=int):
-        p1 = pass1_stats["per_level"][lvl]["pass_at_k"]
+    for lvl in sorted(pass8_stats["per_level"].keys(), key=int):
         p8 = pass8_stats["per_level"][lvl]["pass_at_k"]
-        n = pass1_stats["per_level"][lvl]["total"]
-        logger.info(f"  Level {lvl} (n={n:3d}): pass@1={p1:.2%}  pass@8={p8:.2%}")
+        n = pass8_stats["per_level"][lvl]["total"]
+        logger.info(f"  Level {lvl} (n={n:3d}): pass@8={p8:.2%}")
     logger.info("By subject:")
-    for subj in sorted(pass1_stats["per_subject"].keys()):
-        p1 = pass1_stats["per_subject"][subj]["pass_at_k"]
+    for subj in sorted(pass8_stats["per_subject"].keys()):
         p8 = pass8_stats["per_subject"][subj]["pass_at_k"]
-        n = pass1_stats["per_subject"][subj]["total"]
-        logger.info(f"  {subj:<30s} (n={n:3d}): pass@1={p1:.2%}  pass@8={p8:.2%}")
+        n = pass8_stats["per_subject"][subj]["total"]
+        logger.info(f"  {subj:<30s} (n={n:3d}): pass@8={p8:.2%}")
 
     # -----------------------------------------------------------------------
     # Step 5: Save outputs
     # -----------------------------------------------------------------------
-    # Per-example JSONL written incrementally during eval (flush after each problem)
     logger.info(f"Per-example JSONL saved to {args.output_jsonl}")
 
     # Summary JSON
     summary = {
         "model": args.model,
         "evaluator": "math-verify" if MATH_VERIFY_AVAILABLE else "regex-fallback",
-        "n_samples_pass8": args.n_samples,
-        "temperature_pass8": args.temperature,
+        "n_samples": args.n_samples,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
+        "top_k": args.top_k,
+        "inference_note": "No greedy decoding — Qwen thinking-mode loops infinitely with greedy. Using temp=0.6/top_p=0.95/top_k=20 per Qwen official guide.",
         "dataset": args.data,
         "dataset_stats": {
             "total": len(ds),
             "by_level": {str(k): v for k, v in sorted(level_counts.items())},
             "by_subject": dict(sorted(subject_counts.items())),
         },
-        "pass1": pass1_stats,
+        "pass1_unbiased": round(pass1_overall, 4),
         "pass8": pass8_stats,
         "delta_vs_base": {
             "base_model": "Qwen/Qwen3-1.7B-Base",
             "base_pass1": BASE_PASS1,
-            "sft_pass1": pass1_stats["overall"],
+            "sft_pass1_estimate": round(pass1_overall, 4),
             "delta_pass1": round(delta_pass1, 4),
         },
     }

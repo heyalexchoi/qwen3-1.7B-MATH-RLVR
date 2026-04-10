@@ -204,6 +204,28 @@ To send a monitoring cron's output to the MATH RLVR Telegram topic (176), use `i
 
 ---
 
+### Qwen Thinking Mode: Greedy Decoding Causes Infinite Repetition Loops
+
+**Finding:** Qwen3 thinking-mode models must NOT use greedy decoding (`do_sample=False`, `temperature=0.0`). With greedy, the `<think>` block enters circular reasoning loops that fill the entire token budget without ever producing a `\boxed{}` answer. The model does eventually stop (stop tokens work), but at the token limit with empty output.
+
+This is documented in Qwen's own official inference guide and is a fundamental property of thinking-mode models trained on long CoT traces.
+
+**Recommended Qwen3 thinking-mode inference settings (official):**
+- `temperature=0.6`
+- `top_p=0.95`
+- `top_k=20`
+- `min_p=0`
+- **DO NOT use greedy decoding**
+
+**Impact on our eval:**
+Our first `sft_eval.py` launch used `--max_new_tokens 32768` with greedy pass@1. Each problem took ~25 minutes and produced useless output. Killed after 1/500 problems.
+
+**Fix applied:** Replaced greedy pass@1 with Qwen recommended sampling (`temperature=0.6, top_p=0.95, top_k=20`). We run `n_samples=8` at this temperature, then compute both:
+- **pass@8**: fraction of problems where at least 1 of 8 samples is correct
+- **pass@1 (unbiased estimate)**: `c/n` where c = correct samples, n = 8 — this is the standard unbiased estimator from the Codex paper (Chen et al. 2021). For k=1, pass@1 = 1 − (n−c)/n = c/n.
+
+This is actually a better measurement than greedy pass@1 since it reflects the model's realistic inference distribution.
+
 ### Eval Script — Critical Rules
 - **Train/eval format must match.** `sft_eval.py` MUST use `tokenizer.apply_chat_template()` — the same Qwen3 chat format SFTTrainer applies during training. Using a plain few-shot prompt ("Problem:/Solution:") causes total format mismatch: the model never sees its expected context tokens and enters an infinite repetition loop at greedy decoding until `max_new_tokens` is hit.
 - **Always set `eos_token: "<|im_end|>"` in SFTConfig when fine-tuning a Qwen base model with chat template.** TRL docs explicitly require this: without it, the saved `generation_config.json` won't include `<|im_end|>` as a stop token and inference won't terminate correctly. Our `sft_config.yaml` now has this. The existing checkpoint's `generation_config.json` has been manually patched to add 151645.

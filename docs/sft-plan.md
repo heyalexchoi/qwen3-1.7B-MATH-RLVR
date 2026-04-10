@@ -134,7 +134,7 @@ ssh -i ~/.runpod/ssh/RunPod-Key-Go -o StrictHostKeyChecking=no root@<IP> -p <POR
 
 ---
 
-## Step 4: Sync Code + Data
+## Step 4: Sync Code + Data + Secrets
 
 ```bash
 # Sync full project to pod
@@ -142,6 +142,11 @@ rsync -av --progress \
   -e "ssh -i ~/.runpod/ssh/RunPod-Key-Go -p <PORT> -o StrictHostKeyChecking=no" \
   /home/dev/.openclaw/workspace/qwen3-math-rlvr/ \
   root@<IP>:/workspace/qwen3-math-rlvr/
+
+# Copy secrets to pod (HF_TOKEN, WANDB_API_KEY, etc.)
+scp -i ~/.runpod/ssh/RunPod-Key-Go -P <PORT> -o StrictHostKeyChecking=no \
+  ~/.config/openclaw/secrets.env \
+  root@<IP>:/root/.secrets.env
 ```
 
 Data file to sync: `data/traces/qwen32b_math_traces_rerun_mv_rescored.jsonl` (included above)
@@ -167,20 +172,11 @@ Note: flash-attn may take a few minutes to compile.
 
 ```bash
 ssh -i ~/.runpod/ssh/RunPod-Key-Go -o StrictHostKeyChecking=no root@<IP> -p <PORT> << 'EOF'
+source /root/.secrets.env
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 cd /workspace/qwen3-math-rlvr
-export WANDB_API_KEY=8f534bc5763598d74c05a5b2948d0122b020829c
-export WANDB_PROJECT=qwen3-math-rlvr
-
-nohup python3 scripts/03_sft_train.py \
-  --model Qwen/Qwen3-1.7B-Base \
-  --data data/traces/qwen32b_math_traces_rerun_mv_rescored.jsonl \
-  --output outputs/sft_checkpoint \
-  --config configs/sft_config.yaml \
-  > logs/sft_train.log 2>&1 &
-
+nohup python3 scripts/sft_train.py --push_to_hub > logs/sft_launch.log 2>&1 &
 echo "PID: $!"
-echo "Tailing log..."
-sleep 5 && tail -20 logs/sft_train.log
 EOF
 ```
 

@@ -23,6 +23,16 @@ import logging
 import os
 import sys
 from datetime import datetime
+
+# Auto-load secrets if present (handles fresh pods where env isn't pre-set)
+_SECRETS_FILE = os.path.expanduser("/root/.secrets.env")
+if os.path.exists(_SECRETS_FILE):
+    with open(_SECRETS_FILE) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip())
 from pathlib import Path
 
 import torch
@@ -133,6 +143,11 @@ def main():
         help="HuggingFace Hub repo ID for push_to_hub",
     )
     args = parser.parse_args()
+
+    # Pre-flight: fail fast before any expensive work
+    if args.push_to_hub and not os.environ.get("HF_TOKEN"):
+        print("ERROR: --push_to_hub requires HF_TOKEN env var. Set it before launching.", flush=True)
+        sys.exit(1)
 
     # Set up file logging — captures logging.* calls AND raw stderr (HF Trainer, CUDA warnings)
     log_dir = Path("logs")
