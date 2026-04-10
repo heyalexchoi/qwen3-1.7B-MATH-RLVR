@@ -97,6 +97,7 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 ## Open Tasks
 
 - [x] **Base eval rescore**: Done — 35.8% (was 31.6%). math-verify is strictly better: 21 flipped correct, 0 wrong.
+- [x] **GRPO `max_completion_length`**: Updated 4096 → 8192. 4096 truncates nearly all SFT model rollouts (trained on 32k traces) → zero reward signal. 8192 gives room for reasoning while fitting A100 80GB (8 × 8192 × 152k vocab × 2B ≈ 20GB logits during training backward).
 - [ ] **Review `docs/findings.md`**: May be stale relative to math-verify rescore results. Confirm or update.
 
 ---

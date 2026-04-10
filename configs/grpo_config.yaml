@@ -20,7 +20,7 @@ gradient_checkpointing: true
 
 # GRPO-specific
 num_generations: 8                   # G in GRPO — completions per prompt
-max_completion_length: 4096          # space for <think>...</think> + solution
+max_completion_length: 8192          # must be long enough for SFT model think blocks; 4096 truncates most rollouts → zero reward signal
 max_prompt_length: 1024
 temperature: 0.9                     # higher temp for diverse rollouts
 
