@@ -5,6 +5,14 @@ model_name_or_path: Qwen/Qwen3-1.7B-Base
 torch_dtype: bfloat16
 attn_implementation: flash_attention_2
 
+# EOS token — REQUIRED for Qwen base models with chat template.
+# SFTTrainer saves the base tokenizer (eos=<|endoftext|>) but the model is
+# trained to emit <|im_end|> as the chat turn terminator. Without this,
+# the saved generation_config won't include <|im_end|> and inference won't
+# stop correctly. TRL docs explicitly call this out for Qwen models.
+# See: https://huggingface.co/docs/trl/sft_trainer
+eos_token: "<|im_end|>"
+
 # Sequence length
 # p99 of our trace lengths = ~18.9k tokens; 32k covers 100%
 max_seq_length: 32768

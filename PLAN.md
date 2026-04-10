@@ -180,8 +180,33 @@ Incident (2026-04-09): Subagent removed pod before rsyncing checkpoint-1000 (100
 - Original 20GB volume hit disk-full at step 1000 (checkpoint-500 + checkpoint-1000 briefly coexisted)
 - **Use 100GB volume** to give plenty of room
 
+### Cron Jobs — Routing to This Topic
+
+To send a monitoring cron's output to the MATH RLVR Telegram topic (176), use `isolated` + `delivery.to`:
+
+```json
+{
+  "sessionTarget": "isolated",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Check pod progress via SSH and report N/500 complete...",
+    "toolsAllow": ["exec", "read", "write", "edit"]
+  },
+  "delivery": {
+    "mode": "announce",
+    "channel": "telegram",
+    "to": "-1003722115096:topic:176"
+  }
+}
+```
+
+`sessionTarget: "main"` with `sessionKey` does NOT route replies to the topic — it only controls which session processes the event. Always use `isolated` + `delivery.to` for topic-bound crons.
+
+---
+
 ### Eval Script — Critical Rules
 - **Train/eval format must match.** `sft_eval.py` MUST use `tokenizer.apply_chat_template()` — the same Qwen3 chat format SFTTrainer applies during training. Using a plain few-shot prompt ("Problem:/Solution:") causes total format mismatch: the model never sees its expected context tokens and enters an infinite repetition loop at greedy decoding until `max_new_tokens` is hit.
+- **Always set `eos_token: "<|im_end|>"` in SFTConfig when fine-tuning a Qwen base model with chat template.** TRL docs explicitly require this: without it, the saved `generation_config.json` won't include `<|im_end|>` as a stop token and inference won't terminate correctly. Our `sft_config.yaml` now has this. The existing checkpoint's `generation_config.json` has been manually patched to add 151645.
 - **SFT checkpoint tokenizer has `eos_token=<|endoftext|>` (151643), not `<|im_end|>` (151645).** SFTTrainer saves the tokenizer from the base model config. The model learns to emit `<|im_end|>` to end assistant turns (from the chat template), but `tokenizer.eos_token_id` won't include it. Always build stop tokens as `{eos_token_id} ∪ {<|im_end|>_id}` using `tokenizer.convert_tokens_to_ids("<|im_end|>")` — no hardcoded IDs.
 - **Chat template is in `chat_template.jinja`** (transformers 5.x saves it separately from `tokenizer_config.json`). `AutoTokenizer.from_pretrained()` loads it automatically — `tokenizer.apply_chat_template()` works correctly.
 - **Do not truncate eval inputs.** MATH-500 prompts after chat template formatting are ~300–800 tokens. Setting `max_length` on the tokenizer call is unnecessary and masks real issues.
