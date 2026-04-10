@@ -99,6 +99,7 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 - [x] **Base eval rescore**: Done — 35.8% (was 31.6%). math-verify is strictly better: 21 flipped correct, 0 wrong.
 - [x] **GRPO `max_completion_length`**: Updated 4096 → 8192. 4096 truncates nearly all SFT model rollouts (trained on 32k traces) → zero reward signal. 8192 gives room for reasoning while fitting A100 80GB (8 × 8192 × 152k vocab × 2B ≈ 20GB logits during training backward).
 - [ ] **Review `docs/findings.md`**: May be stale relative to math-verify rescore results. Confirm or update.
+- [ ] **Fix SFT checkpoint tokenizer eos_token + grpo_train.py stop tokens**: SFTTrainer saved the tokenizer with `eos_token=<|endoftext|>` (151643) instead of `<|im_end|>` (151645), even though `sft_config.yaml` set `eos_token: "<|im_end|>"`. The checkpoint is inconsistent — model generates `<|im_end|>` to end turns but tokenizer doesn't reflect this. Fix: (1) investigate correct solution (should tokenizer.eos_token be `<|im_end|>`, or should generation_config.json have both 151643+151645 as eos_token_id list, or both?), (2) apply fix to local checkpoint (`outputs/sft_checkpoint`) and push to HF Hub (`heyalexchoi/qwen3-1.7b-math-sft`), (3) add defensive stop token handling to `grpo_train.py` (same pattern as `sft_eval.py`: build `stop_token_ids = {eos_token_id} \u222a {<|im_end|>_id}`, pass via GRPOConfig generation_config). Must be done before GRPO training.
 
 ---
 
