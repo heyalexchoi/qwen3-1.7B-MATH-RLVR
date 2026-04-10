@@ -33,7 +33,7 @@ README stays lean — pointers, not details.
 | `rescore_mathverify.py` | ✅ Done | math-verify rescore; **95.51% (7,154/7,490)** |
 | `rerun_truncated.py` | ✅ Done | 244 truncated reruns; 160 newly correct |
 | `sft_train.py` | ✅ Done | SFT on 7,154 correct MATH traces |
-| `sft_eval.py` | 🔄 Running | Eval SFT checkpoint on MATH-500 — pass@1, max_new_tokens=32768 |
+| `sft_eval.py` | 🔄 Running | Eval SFT checkpoint on MATH-500 — pass@8 + pass@1 estimate (c/n), temp=0.6/top_p=0.95/top_k=20, max_new_tokens=32768 |
 | `grpo_train.py` | ⏳ Pending | GRPO training from SFT checkpoint |
 | `eval_comparison.py` | ⏳ Pending | Aggregates base/SFT/GRPO summaries into comparison table |
 
@@ -100,38 +100,40 @@ python scripts/07_qwen32b_traces.py \
 
 ### Phase 3: SFT Training
 ```bash
-python scripts/03_sft_train.py \
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+python scripts/sft_train.py \
     --model Qwen/Qwen3-1.7B-Base \
     --data data/traces/qwen32b_math_traces_rerun_mv_rescored.jsonl \
     --output outputs/sft_checkpoint \
-    --config configs/sft_config.yaml
+    --config configs/sft_config.yaml \
+    --push_to_hub
 ```
 
 ### Phase 3a: SFT Eval
 ```bash
-# Script pending — see PLAN.md for spec
-python scripts/03a_sft_eval.py \
+# DO NOT use greedy decoding — Qwen thinking-mode loops infinitely with greedy.
+# Use Qwen official inference params: temp=0.6, top_p=0.95, top_k=20.
+# pass@1 = unbiased estimate c/n from 8 samples (Chen et al. 2021)
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+python scripts/sft_eval.py \
     --model outputs/sft_checkpoint \
-    --output outputs/sft_eval_results.json
+    --max_new_tokens 32768 \
+    --n_samples 8
 ```
 
 ### Phase 4: GRPO Training
 ```bash
-# Script needs full rewrite — see PLAN.md for spec
-python scripts/04_grpo_train.py \
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+python scripts/grpo_train.py \
     --model outputs/sft_checkpoint \
-    --output outputs/grpo_checkpoint
+    --output outputs/grpo_checkpoint \
+    --config configs/grpo_config.yaml \
+    --push_to_hub
 ```
 
 ### Phase 5: Final Evaluation
 ```bash
-# Script needs full rewrite — see PLAN.md for spec
-python scripts/05_final_eval.py \
-    --checkpoints \
-        Qwen/Qwen3-1.7B-Base \
-        outputs/sft_checkpoint \
-        outputs/grpo_checkpoint \
-    --output outputs/final_comparison.json
+python scripts/eval_comparison.py
 ```
 
 ---
@@ -202,7 +204,7 @@ runpodctl pod remove <POD_ID>
 
 | Task | GPU | Cost (approx) |
 |------|-----|---------------|
-| Eval only (scripts 01, 06) | RTX 3090 (24GB) | ~$0.20/hr |
+| Eval only (`sft_eval.py`, `baseline_eval.py`) | A40 (48GB) | ~$0.44/hr |
 | SFT / GRPO | A100 SXM 80GB | ~$1.49/hr |
 
 Use `SECURE` cloud — `COMMUNITY` pods can get stuck on boot.
@@ -221,17 +223,17 @@ qwen3-math-rlvr/
 │   ├── sft_config.yaml
 │   └── grpo_config.yaml
 ├── scripts/
-│   ├── 00_prepare_data.py
-│   ├── 01_baseline_eval.py
-│   ├── 03_sft_train.py
-│   ├── 03a_sft_eval.py    (pending)
-│   ├── 04_grpo_train.py   (needs rewrite)
-│   ├── 05_final_eval.py   (needs rewrite)
-│   ├── 06_math500_eval.py
-│   ├── 07_qwen32b_traces.py
-│   ├── 08_rescore_traces.py
-│   ├── 09_rescore_mathverify.py
-│   └── 10_rerun_truncated.py
+│   ├── prepare_data.py
+│   ├── baseline_eval.py
+│   ├── math500_eval.py         (legacy)
+│   ├── generate_traces_32b.py
+│   ├── rescore_traces.py       (legacy)
+│   ├── rescore_mathverify.py
+│   ├── rerun_truncated.py
+│   ├── sft_train.py
+│   ├── sft_eval.py             ← 🔄 running
+│   ├── grpo_train.py
+│   └── eval_comparison.py      (pending)
 ├── data/
 │   ├── gsm8k/
 │   ├── math_train.jsonl
