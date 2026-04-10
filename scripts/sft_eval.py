@@ -10,6 +10,8 @@ Dataset: HuggingFaceH4/MATH-500
 Outputs:
   outputs/sft_eval_results.jsonl          — per-example results
   outputs/sft_eval_results_summary.json   — summary statistics
+
+Prompt format: tokenizer.apply_chat_template() — matches SFT training format exactly.
 """
 
 import argparse
@@ -105,27 +107,26 @@ def extract_boxed(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Prompting
+# Prompting — chat template (matches SFT training format exactly)
 # ---------------------------------------------------------------------------
 
-FEW_SHOT = """\
-Problem: What is the value of $2^3 - 3 \\cdot 2 + 1$?
-Solution: We compute $2^3 - 3 \\cdot 2 + 1 = 8 - 6 + 1 = 3$. The answer is $\\boxed{3}$.
+def create_prompt(problem: str, tokenizer) -> str:
+    """
+    Format the problem using the model's chat template.
 
-Problem: If $x + y = 10$ and $x - y = 4$, what is $xy$?
-Solution: Adding the equations gives $2x = 14$, so $x = 7$ and $y = 3$. Thus $xy = 7 \\cdot 3 = 21$. The answer is $\\boxed{21}$.
+    This MUST match the format used during SFT training: SFTTrainer applies
+    Qwen3's chat template, producing:
+        <|im_start|>user\n{problem}<|im_end|>\n<|im_start|>assistant\n
 
-Problem: A right triangle has legs of length 5 and 12. What is the hypotenuse?
-Solution: By the Pythagorean theorem, hypotenuse $= \\sqrt{5^2 + 12^2} = \\sqrt{25 + 144} = \\sqrt{169} = 13$. The answer is $\\boxed{13}$.
-
-Problem: How many ways can 3 books be arranged on a shelf from 5 distinct books?
-Solution: This is a permutation: $P(5,3) = 5 \\cdot 4 \\cdot 3 = 60$. The answer is $\\boxed{60}$.
-
-"""
-
-
-def create_prompt(problem: str) -> str:
-    return f"{FEW_SHOT}Problem: {problem}\nSolution:"
+    Using the few-shot "Problem:/Solution:" format here would cause a severe
+    train/eval mismatch — the model would never see its expected BOS/EOS
+    context and would generate without stopping (no <|im_end|> trigger).
+    """
+    return tokenizer.apply_chat_template(
+        [{"role": "user", "content": problem}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -139,10 +140,18 @@ def generate_samples(
     n: int,
     temperature: float,
     max_new_tokens: int,
+    eos_token_ids: list[int] | None = None,
 ) -> list[str]:
     """Generate n completions for a prompt. Greedy if n==1 or temperature==0."""
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
+    inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+    ).to(model.device)
     input_len = inputs.input_ids.shape[1]
+
+    # Use tokenizer.eos_token_id — for a Qwen3 chat checkpoint this is already
+    # set to <|im_end|> (the chat turn terminator). Don't hardcode token IDs.
+    stop_ids = eos_token_ids if eos_token_ids else tokenizer.eos_token_id
 
     if n == 1 or temperature == 0.0:
         with torch.no_grad():
@@ -150,6 +159,7 @@ def generate_samples(
                 **inputs,
                 max_new_tokens=max_new_tokens,
                 do_sample=False,
+                eos_token_id=stop_ids,
                 pad_token_id=tokenizer.pad_token_id,
             )
         return [tokenizer.decode(out[0][input_len:], skip_special_tokens=True)]
@@ -164,6 +174,7 @@ def generate_samples(
             max_new_tokens=max_new_tokens,
             do_sample=True,
             temperature=temperature,
+            eos_token_id=stop_ids,
             pad_token_id=tokenizer.pad_token_id,
         )
     return [tokenizer.decode(out[i][input_len:], skip_special_tokens=True) for i in range(n)]
@@ -331,47 +342,94 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    # Build stop token list: always include both the tokenizer's eos_token_id AND
+    # <|im_end|> (the Qwen3 chat turn terminator the model was trained to emit).
+    # SFT saves tokenizer with eos_token=<|endoftext|> (151643) but the model
+    # generates <|im_end|> (151645) at end of each assistant turn — we need both.
+    # Token IDs resolved dynamically via tokenizer vocab, no hardcoding.
+    _im_end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+    _base_eos = tokenizer.eos_token_id
+    _base_eos_list = [_base_eos] if isinstance(_base_eos, int) else list(_base_eos)
+    stop_token_ids = list(set(_base_eos_list + [_im_end_id]))
+    logger.info(f"Stop tokens: {stop_token_ids} (eos_token='{tokenizer.eos_token}' id={_base_eos}, <|im_end|>={_im_end_id})")
+
+    # Verify chat template is available (required for correct eval format)
+    assert tokenizer.chat_template is not None, (
+        "Tokenizer has no chat template — cannot match SFT training format. "
+        "Requires transformers >= 4.51.0 and a Qwen3 tokenizer."
+    )
+    # Log a sample prompt so we can confirm format looks right
+    _sample_prompt = create_prompt("What is 2+2?", tokenizer)
+    logger.info(f"Sample prompt (first 200 chars): {repr(_sample_prompt[:200])}")
+
+    # -----------------------------------------------------------------------
+    # Resume: load already-scored results from JSONL
+    # -----------------------------------------------------------------------
     results = []
+    done_problems = set()
+    if os.path.exists(args.output_jsonl):
+        with open(args.output_jsonl) as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line:
+                    _r = json.loads(_line)
+                    results.append(_r)
+                    done_problems.add(_r["problem"])
+        if done_problems:
+            logger.info(f"Resuming: {len(done_problems)} problems already scored, skipping them")
+
     logger.info(
         f"Running eval: pass@1 (greedy) + pass@{args.n_samples} (temp={args.temperature})..."
     )
 
-    for ex in tqdm(ds):
-        problem = ex["problem"]
-        expected = ex["answer"]   # pre-extracted, no \boxed{}
-        level = ex["level"]
-        subject = ex["subject"]
-        prompt = create_prompt(problem)
+    with open(args.output_jsonl, "a") as jsonl_f:
+        for ex in tqdm(ds):
+            problem = ex["problem"]
+            expected = ex["answer"]   # pre-extracted, no \boxed{}
+            level = ex["level"]
+            subject = ex["subject"]
 
-        # pass@1: greedy
-        resp1 = generate_samples(
-            model, tokenizer, prompt, n=1, temperature=0.0, max_new_tokens=args.max_new_tokens
-        )[0]
-        pred1 = extract_boxed(resp1)
-        pass1_samples = [
-            {"response": resp1, "predicted": pred1, "correct": answers_match(pred1, expected)}
-        ]
+            if problem in done_problems:
+                continue
 
-        # pass@8: sampling
-        resps8 = generate_samples(
-            model, tokenizer, prompt, n=args.n_samples,
-            temperature=args.temperature, max_new_tokens=args.max_new_tokens,
-        )
-        pass8_samples = []
-        for resp in resps8:
-            pred = extract_boxed(resp)
-            pass8_samples.append(
-                {"response": resp, "predicted": pred, "correct": answers_match(pred, expected)}
+            prompt = create_prompt(problem, tokenizer)
+
+            # pass@1: greedy
+            resp1 = generate_samples(
+                model, tokenizer, prompt,
+                n=1, temperature=0.0, max_new_tokens=args.max_new_tokens,
+                eos_token_ids=stop_token_ids,
+            )[0]
+            pred1 = extract_boxed(resp1)
+            pass1_samples = [
+                {"response": resp1, "predicted": pred1, "correct": answers_match(pred1, expected)}
+            ]
+
+            # pass@8: sampling
+            resps8 = generate_samples(
+                model, tokenizer, prompt,
+                n=args.n_samples, temperature=args.temperature,
+                max_new_tokens=args.max_new_tokens,
+                eos_token_ids=stop_token_ids,
             )
+            pass8_samples = []
+            for resp in resps8:
+                pred = extract_boxed(resp)
+                pass8_samples.append(
+                    {"response": resp, "predicted": pred, "correct": answers_match(pred, expected)}
+                )
 
-        results.append({
-            "problem": problem,
-            "expected": expected,
-            "level": level,
-            "subject": subject,
-            "pass1": pass1_samples,
-            "pass8": pass8_samples,
-        })
+            result = {
+                "problem": problem,
+                "expected": expected,
+                "level": level,
+                "subject": subject,
+                "pass1": pass1_samples,
+                "pass8": pass8_samples,
+            }
+            results.append(result)
+            jsonl_f.write(json.dumps(result) + "\n")
+            jsonl_f.flush()
 
     # -----------------------------------------------------------------------
     # Step 4: Score by level
@@ -406,10 +464,7 @@ def main():
     # -----------------------------------------------------------------------
     # Step 5: Save outputs
     # -----------------------------------------------------------------------
-    # Per-example JSONL
-    with open(args.output_jsonl, "w") as f:
-        for r in results:
-            f.write(json.dumps(r) + "\n")
+    # Per-example JSONL written incrementally during eval (flush after each problem)
     logger.info(f"Per-example JSONL saved to {args.output_jsonl}")
 
     # Summary JSON

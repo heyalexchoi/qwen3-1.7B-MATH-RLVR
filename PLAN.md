@@ -9,20 +9,14 @@ For session history and decisions, see `memory/math-rlvr.md`.
 
 ## Current Run
 
-**Phase:** SFT training — 🔄 RUNNING
+**Phase:** SFT eval — 🔄 RUNNING
 
-- **Pod**: `1tbygbeoiv5n9u` — A100 SXM 80GB, $1.49/hr, US-MD
-- **SSH**: `ssh -i ~/.runpod/ssh/RunPod-Key-Go -o StrictHostKeyChecking=no root@154.54.102.42 -p 12259`
-- **Started**: ~20:40 UTC 2026-04-09 — ETA ~01:00 UTC 2026-04-10
-- **Monitor cron**: `8475247b` — every 30min, auto-rsync + stop pod on completion
-- **HF push**: `heyalexchoi/qwen3-1.7b-math-sft` (pushes each checkpoint save)
-- **Log**: `tail -50 /workspace/qwen3-math-rlvr/logs/sft_launch.log`
-
-**After completion:** rsync checkpoint locally → verify → `runpodctl pod stop` (NOT remove) → run `sft_eval.py`
-
-> **runpodctl SSH readiness check:** SSH details are at `.ssh.ip` and `.ssh.port` in the JSON output
-> (NOT `runtime.ports`). Check with:
-> `runpodctl pod get <id> -o json | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('ssh',{}); print(s.get('ip'), s.get('port'))"`
+- SFT training completed 06:21 UTC 2026-04-10, 1275/1275 steps
+- Checkpoint: `outputs/sft_checkpoint/model.safetensors` (local + HF Hub: `heyalexchoi/qwen3-1.7b-math-sft`)
+- Eval pod: `zrszn3f053jgcj` (A40, 194.68.245.64:22047), PID 1064
+- Command: `sft_eval.py --model outputs/sft_checkpoint --max_new_tokens 32768 --n_samples 8`
+- Monitor cron: `9acabe61` every 30 min → rsync + stop pod on completion
+- `sft_eval.py` patched 2026-04-10: incremental JSONL flush + resume support
 
 ---
 
@@ -42,13 +36,13 @@ Target trajectory: base 31.6% → SFT ~45-55% → GRPO ~85-90% MATH-500 pass@1
 ```
 [0] Data prep (GSM8K + MATH datasets)                         ✅
       ↓
-[1] Base eval — GSM8K + MATH-500                              ✅  31.6% pass@1 (⚠️ weak evaluator — rescore with sft_eval.py)
+[1] Base eval — GSM8K + MATH-500                              ✅  35.8% pass@1 (math-verify rescored)
       ↓
 [2] Generate Qwen3-32B reasoning traces + rescore             ✅  7,154 correct traces (95.51%)
       ↓
-[3] SFT on correct traces (sft_train.py)                      ⏳ pending
+[3] SFT on correct traces (sft_train.py)                      ✅ done — 06:21 UTC 2026-04-10
       ↓
-[3a] SFT eval — MATH-500 (sft_eval.py)                        ⏳ pending  target ~45-55%
+[3a] SFT eval — MATH-500 (sft_eval.py)                        🔄 RUNNING   target ~45-55%
       ↓
 [4] GRPO training (grpo_train.py)                             ⏳ pending
       ↓
@@ -89,8 +83,8 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 | `rescore_mathverify.py` | Rescore any trace JSONL with math-verify (ANTLR4/SymPy) | ✅ Done |
 | `rerun_truncated.py` | Re-run traces truncated at 16k tokens at 32k | ✅ Done |
 | `math500_eval.py` | Legacy MATH-500 eval (weak evaluator); superseded by `sft_eval.py` | ✅ Done (legacy) |
-| `sft_train.py` | SFT on 7,154 correct traces; chat template; completion-only loss; file logging; checkpoint auto-resume; `--push_to_hub` | ⏳ Pending |
-| `sft_eval.py` | MATH-500 eval with math-verify on any checkpoint; used for base, SFT, and GRPO eval | ⏳ Pending |
+| `sft_train.py` | SFT on 7,154 correct traces; chat template; completion-only loss; file logging; checkpoint auto-resume; `--push_to_hub` | ✅ Done |
+| `sft_eval.py` | MATH-500 eval with math-verify on any checkpoint; used for base, SFT, and GRPO eval | 🔄 Running |
 | `grpo_train.py` | GRPO with math-verify reward on MATH dataset; starts from sft_checkpoint; `--push_to_hub` | ✅ Done |
 | `eval_comparison.py` | Comparison aggregator — reads already-computed summary JSONs, prints base→SFT→GRPO table. No inference. | ⏳ Pending |
 
@@ -185,6 +179,12 @@ Incident (2026-04-09): Subagent removed pod before rsyncing checkpoint-1000 (100
 - `save_total_limit=1` but there's a brief window where two checkpoints coexist (new written before old deleted)
 - Original 20GB volume hit disk-full at step 1000 (checkpoint-500 + checkpoint-1000 briefly coexisted)
 - **Use 100GB volume** to give plenty of room
+
+### Eval Script — Critical Rules
+- **Train/eval format must match.** `sft_eval.py` MUST use `tokenizer.apply_chat_template()` — the same Qwen3 chat format SFTTrainer applies during training. Using a plain few-shot prompt ("Problem:/Solution:") causes total format mismatch: the model never sees its expected context tokens and enters an infinite repetition loop at greedy decoding until `max_new_tokens` is hit.
+- **SFT checkpoint tokenizer has `eos_token=<|endoftext|>` (151643), not `<|im_end|>` (151645).** SFTTrainer saves the tokenizer from the base model config. The model learns to emit `<|im_end|>` to end assistant turns (from the chat template), but `tokenizer.eos_token_id` won't include it. Always build stop tokens as `{eos_token_id} ∪ {<|im_end|>_id}` using `tokenizer.convert_tokens_to_ids("<|im_end|>")` — no hardcoded IDs.
+- **Chat template is in `chat_template.jinja`** (transformers 5.x saves it separately from `tokenizer_config.json`). `AutoTokenizer.from_pretrained()` loads it automatically — `tokenizer.apply_chat_template()` works correctly.
+- **Do not truncate eval inputs.** MATH-500 prompts after chat template formatting are ~300–800 tokens. Setting `max_length` on the tokenizer call is unnecessary and masks real issues.
 
 ### Evaluator
 - **math-verify** (`pip install 'math-verify[antlr4_13_2]'`) is the authoritative evaluator
