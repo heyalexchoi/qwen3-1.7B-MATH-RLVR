@@ -22,11 +22,16 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
+from contextlib import nullcontext
 from datasets import Dataset
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import GRPOConfig, GRPOTrainer
+from trl.trainer.grpo_trainer import profiling_context, unwrap_model_for_generation
+from trl.trainer.utils import pad
 
 from prompts import create_prompt, STOP_STRINGS
 
@@ -185,22 +190,93 @@ def load_math_for_grpo(data_path: str) -> Dataset:
 # ---------------------------------------------------------------------------
 
 class SkipZeroAdvantageGRPOTrainer(GRPOTrainer):
-    """GRPOTrainer that skips micro-batches where all advantages are zero.
+    """GRPOTrainer with two extensions over vanilla GRPOTrainer:
 
-    When every rollout for a prompt has the same reward (all correct or all
-    incorrect), advantages = 0, loss = 0, gradient = 0. TRL still runs the
-    full forward+backward — this wastes compute, especially at high accuracy.
+    1. **Zero-advantage batch skipping**: when every rollout for a prompt has the
+       same reward (all correct or all incorrect), advantages = 0 and TRL still
+       runs the full forward+backward for zero gain. We skip the backward pass
+       by returning a detached zero loss tensor. The optimizer step still fires on
+       schedule (gradient accumulation step counting is based on forward passes).
 
-    Returning a zero tensor from compute_loss is mathematically identical but
-    avoids the backward pass. The optimizer step still fires at the normal
-    gradient_accumulation_steps interval (gradient accumulation step counting
-    is based on forward passes, not nonzero gradients).
+    2. **Stop-string support for rollout generation**: TRL's generate() call does
+       not pass a tokenizer, so GenerationConfig.stop_strings doesn't work out of
+       the box. We override _generate_single_turn (HF path only; vLLM/paged paths
+       delegated to super) to add tokenizer=self.processing_class, enabling early
+       stop at STOP_STRINGS (e.g. "\\n\\nProblem:"). Without this, rollouts that
+       want to continue the few-shot pattern run to the 2048 cap, wasting tokens.
+       Note: the reward function ALSO truncates at STOP_STRINGS before scoring, so
+       correctness is unaffected even if this override fails — it only affects compute.
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._zero_adv_skips = 0
         self._total_micro_steps = 0
+        # Enable stop_strings — _generate_single_turn will pass the tokenizer.
+        self.generation_config.stop_strings = STOP_STRINGS
+
+    def _generate_single_turn(self, prompt_ids, images, multimodal_fields):
+        """Identical to super() but adds tokenizer= to model.generate() so that
+        generation_config.stop_strings terminates rollouts early."""
+        # vLLM and paged paths have different generation APIs — delegate untouched.
+        if self.use_vllm or self.use_transformers_paged:
+            return super()._generate_single_turn(prompt_ids, images, multimodal_fields)
+
+        # HF regular generation path — same as GRPOTrainer._generate_single_turn
+        # except for `tokenizer=self.processing_class` in the generate() call.
+        device = self.accelerator.device
+        prompt_tensors = [torch.tensor(ids) for ids in prompt_ids]
+        padded_ids = pad(prompt_tensors, padding_value=self.pad_token_id, padding_side="left")
+        attention_mask = pad(
+            [torch.ones_like(t) for t in prompt_tensors], padding_value=0, padding_side="left"
+        )
+        generate_inputs = {"input_ids": padded_ids, "attention_mask": attention_mask}
+        for k, v in multimodal_fields.items():
+            if isinstance(v, torch.Tensor):
+                generate_inputs[k] = v
+            elif isinstance(v, list) and v and isinstance(v[0], list):
+                generate_inputs[k] = pad(
+                    [torch.tensor(x) for x in v], padding_value=0, padding_side="left"
+                )
+            else:
+                generate_inputs[k] = torch.tensor(np.array(v))
+        # Move tensors to device (equivalent to Trainer._prepare_inputs for single-process)
+        generate_inputs = {
+            k: v.to(device) if isinstance(v, torch.Tensor) else v
+            for k, v in generate_inputs.items()
+        }
+
+        with (
+            profiling_context(self, "transformers.generate"),
+            unwrap_model_for_generation(
+                self.model_wrapped,
+                self.accelerator,
+                gather_deepspeed3_params=self.args.ds3_gather_for_generation,
+                generation_kwargs=self.generation_kwargs,
+            ) as unwrapped_model,
+            torch.no_grad(),
+            FSDP.summon_full_params(self.model_wrapped, recurse=False)
+            if self.is_fsdp_enabled
+            else nullcontext(),
+        ):
+            prompt_completion_ids = unwrapped_model.generate(
+                **generate_inputs,
+                generation_config=self.generation_config,
+                tokenizer=self.processing_class,  # required for stop_strings to work
+            )
+
+        prompt_length = generate_inputs["input_ids"].size(1)
+        completion_ids = prompt_completion_ids[:, prompt_length:]
+        is_eos = completion_ids == self.eos_token_id
+        eos_idx = torch.full((is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=device)
+        eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
+        sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
+        completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
+        completion_ids = [
+            c[m].tolist()
+            for c, m in zip(completion_ids.cpu(), completion_mask.bool().cpu(), strict=True)
+        ]
+        return completion_ids, None
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         self._total_micro_steps += 1
@@ -210,11 +286,13 @@ class SkipZeroAdvantageGRPOTrainer(GRPOTrainer):
         # (all correct or all incorrect), which is the DAPO dynamic-sampling condition.
         if advantages is not None and (advantages == 0).all():
             self._zero_adv_skips += 1
-            skip_rate = self._zero_adv_skips / self._total_micro_steps
-            logger.info(
-                f"[zero-adv skip] micro_step={self._total_micro_steps} "
-                f"skips={self._zero_adv_skips} running_rate={skip_rate:.1%}"
-            )
+            # Log every 100th skip to flag the phenomenon without spamming logs.
+            # The continuous skip_rate metric is injected into wandb via log() below.
+            if self._zero_adv_skips % 100 == 1:
+                logger.info(
+                    f"[zero-adv skip #{self._zero_adv_skips}] "
+                    f"running_rate={self._zero_adv_skips / self._total_micro_steps:.1%}"
+                )
             loss = torch.tensor(0.0, requires_grad=True, device=inputs["input_ids"].device)
             if return_outputs:
                 return loss, {}
@@ -224,6 +302,14 @@ class SkipZeroAdvantageGRPOTrainer(GRPOTrainer):
             return_outputs=return_outputs,
             num_items_in_batch=num_items_in_batch,
         )
+
+    def log(self, logs: dict, start_time: float | None = None) -> None:
+        """Inject zero-advantage skip rate into every normal log call (→ wandb)."""
+        if self._total_micro_steps > 0:
+            logs["zero_adv_skip_rate"] = round(
+                self._zero_adv_skips / self._total_micro_steps, 4
+            )
+        super().log(logs, start_time=start_time)
 
 
 # ---------------------------------------------------------------------------
@@ -415,8 +501,11 @@ def main():
 
     grpo_config = GRPOConfig(**grpo_kwargs)
 
-    logger.info("GRPO config summary:")
+    # Log resolved config — verify these during smoke test (--max_steps 1).
+    # "no error" != "correctly configured"; confirm each value explicitly.
+    logger.info("GRPO config summary (resolved — verify during smoke test):")
     logger.info(f"  model:                  {args.model}")
+    logger.info(f"  tokenizer.name_or_path: {tokenizer.name_or_path}")
     logger.info(f"  num_generations:        {grpo_config.num_generations}")
     logger.info(f"  max_completion_length:  {grpo_config.max_completion_length}")
     logger.info(f"  temperature:            {grpo_config.temperature}")
@@ -424,11 +513,16 @@ def main():
     logger.info(f"  gradient_accumulation:  {grpo_config.gradient_accumulation_steps}")
     logger.info(f"  effective batch size:   {grpo_config.per_device_train_batch_size * grpo_config.gradient_accumulation_steps}")
     logger.info(f"  learning_rate:          {grpo_config.learning_rate}")
+    logger.info(f"  lr_scheduler_type:      {grpo_config.lr_scheduler_type}")
+    logger.info(f"  warmup_ratio:           {grpo_config.warmup_ratio}")
     logger.info(f"  loss_type:              {grpo_config.loss_type}")
     logger.info(f"  beta:                   {grpo_config.beta}")
-    if "epsilon_high" in config:
-        logger.info(f"  epsilon_high:           {config['epsilon_high']}")
+    logger.info(f"  epsilon (low):          {grpo_config.epsilon}")
+    logger.info(f"  epsilon_high:           {grpo_config.epsilon_high}")
+    logger.info(f"  stop_strings:           {STOP_STRINGS}")
     logger.info(f"  num_train_epochs:       {grpo_config.num_train_epochs}")
+    if args.max_steps is not None:
+        logger.info(f"  max_steps (override):   {grpo_config.max_steps}")
     logger.info(f"  push_to_hub:            {args.push_to_hub}")
     if args.push_to_hub:
         logger.info(f"  hub_repo_id:            {args.hub_repo_id}")
