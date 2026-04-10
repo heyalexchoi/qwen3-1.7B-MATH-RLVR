@@ -18,11 +18,17 @@ import argparse
 import json
 import logging
 import os
+
+# Must be set before torch is imported. Prevents CUDA allocator fragmentation OOM
+# on long sequences by allowing existing memory segments to expand rather than
+# requiring contiguous free blocks. Critical for 32k+ token generation on A40/A100.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import re
 import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+import time
 
 import torch
 from datasets import load_dataset
@@ -140,16 +146,22 @@ def generate_samples(
     n: int,
     temperature: float,
     max_new_tokens: int,
+    unique_id: str = "",
     eos_token_ids: list[int] | None = None,
     top_p: float | None = None,
     top_k: int | None = None,
-) -> list[str]:
-    """Generate n completions for a prompt.
+) -> list[tuple[str, int]]:
+    """Generate n completions for a prompt. Returns list of (text, n_tokens) tuples.
 
     NOTE: Do NOT use greedy decoding (temperature=0.0) with Qwen3 thinking-mode
     models — it causes infinite repetition loops in <think> blocks. Use
     temperature=0.6, top_p=0.95, top_k=20 per Qwen official inference guide.
+
+    Batches all n samples in one forward pass for efficiency.
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True is set at module load to
+    prevent fragmentation OOM from large KV caches.
     """
+    import time
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
@@ -161,22 +173,55 @@ def generate_samples(
     # Batch n samples in one forward pass
     input_ids = inputs.input_ids.repeat(n, 1)
     attention_mask = inputs.attention_mask.repeat(n, 1)
-    gen_kwargs = dict(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        max_new_tokens=max_new_tokens,
-        do_sample=True,
-        temperature=temperature,
-        eos_token_id=stop_ids,
-        pad_token_id=tokenizer.pad_token_id,
-    )
-    if top_p is not None:
-        gen_kwargs["top_p"] = top_p
-    if top_k is not None:
-        gen_kwargs["top_k"] = top_k
+
+    if temperature == 0.0:
+        # Greedy decoding — do_sample=False; top_p/top_k not used.
+        # Note: Qwen3 thinking-mode models may loop on some problems at temp=0.
+        # max_new_tokens acts as hard cap. Used for greedy pass@1 comparison metric.
+        gen_kwargs = dict(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            eos_token_id=stop_ids,
+            pad_token_id=tokenizer.pad_token_id,
+        )
+    else:
+        gen_kwargs = dict(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=temperature,
+            eos_token_id=stop_ids,
+            pad_token_id=tokenizer.pad_token_id,
+        )
+        if top_p is not None:
+            gen_kwargs["top_p"] = top_p
+        if top_k is not None:
+            gen_kwargs["top_k"] = top_k
+
+    label = unique_id or "problem"
+    logger.info(f"[{label}] generating {n} samples (max_new_tokens={max_new_tokens})...")
+    t0 = time.time()
     with torch.no_grad():
         out = model.generate(**gen_kwargs)
-    return [tokenizer.decode(out[i][input_len:], skip_special_tokens=True) for i in range(n)]
+    elapsed = time.time() - t0
+
+    results = []
+    for i in range(n):
+        token_ids = out[i][input_len:]
+        n_tokens = int((token_ids != tokenizer.pad_token_id).sum())
+        text = tokenizer.decode(token_ids, skip_special_tokens=True)
+        results.append((text, n_tokens))
+
+    total_tokens = sum(r[1] for r in results)
+    logger.info(
+        f"[{label}] done: {total_tokens} tokens in {elapsed:.1f}s "
+        f"({total_tokens/elapsed:.0f} tok/s), "
+        f"avg {total_tokens/n:.0f} tok/sample"
+    )
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +280,10 @@ def compute_pass_at_k(results: list[dict], sample_key: str) -> dict:
 # Main
 # ---------------------------------------------------------------------------
 
-BASE_PASS1 = 0.316  # Qwen3-1.7B-Base MATH-500 pass@1 baseline
+# NOTE: No hardcoded baseline comparison here.
+# The baseline (35.8%) was greedy pass@1; this eval uses c/n from n=8 samples at temp=0.6.
+# Comparing them directly is methodologically unsound. For a fair delta, re-run the
+# baseline eval with the same methodology (n=8, temp=0.6) before computing improvement.
 
 
 def main():
@@ -271,13 +319,45 @@ def main():
         help="HuggingFace dataset ID or path for MATH-500 test set",
     )
     parser.add_argument("--max_samples", type=int, default=None, help="Limit problems (for debugging)")
-    parser.add_argument("--max_new_tokens", type=int, default=32768)
+    # 8192 covers ~90% of correct teacher (Qwen3-32B) responses by token length.
+    # See README Key Findings: max_new_tokens tradeoff section.
+    parser.add_argument("--max_new_tokens", type=int, default=8192)
     parser.add_argument("--n_samples", type=int, default=8, help="Samples per problem for pass@k")
     parser.add_argument("--temperature", type=float, default=0.6, help="Sampling temperature (Qwen thinking-mode recommended: 0.6)")
     parser.add_argument("--top_p", type=float, default=0.95, help="Top-p sampling (Qwen thinking-mode recommended: 0.95)")
     parser.add_argument("--top_k", type=int, default=20, help="Top-k sampling (Qwen thinking-mode recommended: 20)")
     parser.add_argument("--stats_only", action="store_true", help="Just print dataset stats and exit")
+    parser.add_argument(
+        "--greedy",
+        action="store_true",
+        help=(
+            "Greedy pass@1 mode: sets n_samples=1, temperature=0.0, max_new_tokens=4096 (unless "
+            "overridden), and outputs to sft_eval_greedy_results.jsonl. Used alongside the "
+            "sampling eval (n=8, temp=0.6) for full comparison. Note: Qwen3 thinking-mode "
+            "models may loop on some problems at temp=0 — max_new_tokens is a hard cap."
+        ),
+    )
+    parser.add_argument(
+        "--greedy_batch_size",
+        type=int,
+        default=8,
+        help="Number of problems per batch in greedy mode (default: 8). Set to 1 to disable batching.",
+    )
     args = parser.parse_args()
+
+    # --greedy: override defaults for greedy pass@1 eval
+    if args.greedy:
+        args.n_samples = 1
+        args.temperature = 0.0
+        # max_new_tokens: keep same default (8192) as sampling eval for fair comparison.
+        # 4096 would truncate L4/L5 problems (teacher p50 ~4600 tokens at L5).
+        # Default output paths for greedy mode (if user didn't already override)
+        default_jsonl = "/workspace/qwen3-math-rlvr/outputs/sft_eval_results.jsonl"
+        default_summary = "/workspace/qwen3-math-rlvr/outputs/sft_eval_results_summary.json"
+        if args.output_jsonl == default_jsonl:
+            args.output_jsonl = "/workspace/qwen3-math-rlvr/outputs/sft_eval_greedy_results.jsonl"
+        if args.output_summary == default_summary:
+            args.output_summary = "/workspace/qwen3-math-rlvr/outputs/sft_eval_greedy_summary.json"
 
     # Set up file logging — log to both stdout and file
     log_dir = Path("logs")
@@ -343,6 +423,14 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    # Left-padding required for batched generation with decoder-only models.
+    # With right-padding, the model would attend to pad tokens at the end of each
+    # sequence, corrupting generation. Left-padding places all real tokens at the
+    # end so each problem's generation starts from a clean state.
+    if args.greedy and args.greedy_batch_size > 1:
+        tokenizer.padding_side = "left"
+        logger.info(f"Batched greedy mode: padding_side=left, batch_size={args.greedy_batch_size}")
+
     # Build stop token list: always include both the tokenizer's eos_token_id AND
     # <|im_end|> (the Qwen3 chat turn terminator the model was trained to emit).
     # SFT saves tokenizer with eos_token=<|endoftext|> (151643) but the model
@@ -364,92 +452,232 @@ def main():
     logger.info(f"Sample prompt (first 200 chars): {repr(_sample_prompt[:200])}")
 
     # -----------------------------------------------------------------------
-    # Resume: load already-scored results from JSONL
+    # Resume: load already-scored samples from JSONL
+    # JSONL format: 1 row per sample (unique_id + sample_idx as resume key)
     # -----------------------------------------------------------------------
-    results = []
-    done_problems = set()
+    done_samples: set[tuple[str, int]] = set()  # (unique_id, sample_idx)
     if os.path.exists(args.output_jsonl):
         with open(args.output_jsonl) as _f:
             for _line in _f:
                 _line = _line.strip()
                 if _line:
                     _r = json.loads(_line)
-                    results.append(_r)
-                    done_problems.add(_r["problem"])
-        if done_problems:
-            logger.info(f"Resuming: {len(done_problems)} problems already scored, skipping them")
+                    done_samples.add((_r["unique_id"], _r["sample_idx"]))
+        if done_samples:
+            done_problems = len({uid for uid, _ in done_samples})
+            logger.info(f"Resuming: {len(done_samples)} samples ({done_problems} problems) already scored")
 
-    logger.info(
-        f"Running eval: pass@{args.n_samples} (temp={args.temperature}, top_p={args.top_p}, top_k={args.top_k})..."
-    )
-    logger.info(
-        f"pass@1 will be computed as unbiased estimate c/n from the {args.n_samples} samples."
-    )
+    if args.greedy:
+        logger.info(
+            f"Running GREEDY eval: pass@1 (temp=0.0, max_new_tokens={args.max_new_tokens})..."
+        )
+    else:
+        logger.info(
+            f"Running eval: pass@{args.n_samples} (temp={args.temperature}, top_p={args.top_p}, "
+            f"top_k={args.top_k}, max_new_tokens={args.max_new_tokens})..."
+        )
+        logger.info(
+            f"pass@1 will be computed as unbiased estimate c/n from the {args.n_samples} samples."
+        )
 
-    with open(args.output_jsonl, "a") as jsonl_f:
-        for ex in tqdm(ds):
-            problem = ex["problem"]
-            expected = ex["answer"]   # pre-extracted, no \boxed{}
-            level = ex["level"]
-            subject = ex["subject"]
+    if args.greedy and args.greedy_batch_size > 1:
+        # -----------------------------------------------------------------------
+        # Batched greedy eval loop
+        # Processes greedy_batch_size problems per model.generate() call instead
+        # of one-at-a-time, cutting wall-clock time by ~4-8x on A40.
+        # -----------------------------------------------------------------------
+        problems_list = list(ds)
+        n_total = len(problems_list)
+        n_batches = (n_total + args.greedy_batch_size - 1) // args.greedy_batch_size
+        logger.info(f"Batched greedy eval: {n_total} problems in {n_batches} batches of up to {args.greedy_batch_size}")
 
-            if problem in done_problems:
-                continue
+        with open(args.output_jsonl, "a") as jsonl_f:
+            pbar = tqdm(total=n_total, desc="greedy batched")
+            for batch_idx in range(n_batches):
+                batch_start = batch_idx * args.greedy_batch_size
+                batch_end = min(batch_start + args.greedy_batch_size, n_total)
+                batch_exs = problems_list[batch_start:batch_end]
 
-            prompt = create_prompt(problem, tokenizer)
+                # Filter to only problems not yet done (resume support).
+                # In greedy mode sample_idx is always 0.
+                pending = [
+                    ex for ex in batch_exs
+                    if (ex["unique_id"], 0) not in done_samples
+                ]
 
-            # Generate n_samples with Qwen thinking-mode recommended settings.
-            # DO NOT use greedy (temperature=0) — causes infinite repetition loops.
-            # pass@1 is estimated as c/n (unbiased estimator, Chen et al. 2021).
-            resps = generate_samples(
-                model, tokenizer, prompt,
-                n=args.n_samples,
-                temperature=args.temperature,
-                max_new_tokens=args.max_new_tokens,
-                eos_token_ids=stop_token_ids,
-                top_p=args.top_p,
-                top_k=args.top_k,
-            )
-            samples = []
-            for resp in resps:
-                pred = extract_boxed(resp)
-                samples.append(
-                    {"response": resp, "predicted": pred, "correct": answers_match(pred, expected)}
+                if not pending:
+                    pbar.update(len(batch_exs))
+                    continue
+
+                logger.info(
+                    f"Batch {batch_idx + 1}/{n_batches} (problems {batch_start}-{batch_end - 1}): "
+                    f"{len(pending)}/{len(batch_exs)} pending"
                 )
 
-            n_correct = sum(s["correct"] for s in samples)
-            result = {
-                "problem": problem,
-                "expected": expected,
-                "level": level,
-                "subject": subject,
-                "samples": samples,
-                # pass@1 unbiased estimate: c/n (Chen et al. 2021)
-                "pass1_estimate": n_correct / len(samples),
-            }
-            results.append(result)
-            jsonl_f.write(json.dumps(result) + "\n")
-            jsonl_f.flush()
+                # Build prompts for pending problems
+                prompts = [create_prompt(ex["problem"], tokenizer) for ex in pending]
+
+                # Tokenize as a left-padded batch
+                batch_inputs = tokenizer(
+                    prompts,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=False,
+                ).to(model.device)
+                padded_input_len = batch_inputs["input_ids"].shape[1]
+
+                t0 = time.time()
+                with torch.no_grad():
+                    out = model.generate(
+                        input_ids=batch_inputs["input_ids"],
+                        attention_mask=batch_inputs["attention_mask"],
+                        max_new_tokens=args.max_new_tokens,
+                        do_sample=False,
+                        eos_token_id=stop_token_ids,
+                        pad_token_id=tokenizer.pad_token_id,
+                    )
+                elapsed = time.time() - t0
+
+                total_tokens = 0
+                for i, ex in enumerate(pending):
+                    # Generated tokens follow the (left-padded) input tokens.
+                    # All rows share the same padded_input_len as the starting
+                    # offset; output shape is (batch, padded_input_len + gen_len).
+                    token_ids = out[i][padded_input_len:]
+                    # Count non-pad generated tokens (model may stop early)
+                    n_tokens = int((token_ids != tokenizer.pad_token_id).sum())
+                    text = tokenizer.decode(token_ids, skip_special_tokens=True)
+                    total_tokens += n_tokens
+
+                    pred = extract_boxed(text)
+                    correct = answers_match(pred, ex["answer"])
+                    row = {
+                        "unique_id": ex["unique_id"],
+                        "sample_idx": 0,
+                        "problem": ex["problem"],
+                        "expected": ex["answer"],
+                        "level": ex["level"],
+                        "subject": ex["subject"],
+                        "response": text,
+                        "predicted": pred,
+                        "correct": correct,
+                        "n_tokens": n_tokens,
+                        "max_new_tokens": args.max_new_tokens,
+                    }
+                    logger.info(
+                        f"[{ex['unique_id']}] sample 0: {n_tokens} tokens, correct={correct}"
+                    )
+                    jsonl_f.write(json.dumps(row) + "\n")
+                    jsonl_f.flush()
+
+                tok_per_s = total_tokens / elapsed if elapsed > 0 else 0
+                logger.info(
+                    f"Batch {batch_idx + 1}/{n_batches}: done — "
+                    f"{total_tokens} tokens in {elapsed:.1f}s ({tok_per_s:.0f} tok/s)"
+                )
+                pbar.update(len(batch_exs))
+            pbar.close()
+
+    else:
+        # -----------------------------------------------------------------------
+        # Original per-problem loop (sampling mode, or greedy with batch_size=1)
+        # -----------------------------------------------------------------------
+        with open(args.output_jsonl, "a") as jsonl_f:
+            for ex in tqdm(ds):
+                unique_id = ex["unique_id"]
+                problem = ex["problem"]
+                expected = ex["answer"]   # pre-extracted, no \boxed{}
+                level = ex["level"]
+                subject = ex["subject"]
+
+                # Skip problems where all samples are already done
+                samples_needed = [
+                    i for i in range(args.n_samples)
+                    if (unique_id, i) not in done_samples
+                ]
+                if not samples_needed:
+                    continue
+
+                prompt = create_prompt(problem, tokenizer)
+
+                # Generate n_samples with Qwen thinking-mode recommended settings.
+                # DO NOT use greedy (temperature=0) — causes infinite repetition loops.
+                # pass@1 is estimated as c/n (unbiased estimator, Chen et al. 2021).
+                # Batched for efficiency; expandable_segments:True prevents KV cache OOM.
+                sample_results = generate_samples(
+                    model, tokenizer, prompt,
+                    n=args.n_samples,
+                    temperature=args.temperature,
+                    max_new_tokens=args.max_new_tokens,
+                    unique_id=unique_id,
+                    eos_token_ids=stop_token_ids,
+                    top_p=args.top_p,
+                    top_k=args.top_k,
+                )
+
+                for sample_idx, (resp, n_tokens) in enumerate(sample_results):
+                    if (unique_id, sample_idx) in done_samples:
+                        continue  # already written in a prior run
+                    pred = extract_boxed(resp)
+                    correct = answers_match(pred, expected)
+                    row = {
+                        "unique_id": unique_id,
+                        "sample_idx": sample_idx,
+                        "problem": problem,
+                        "expected": expected,
+                        "level": level,
+                        "subject": subject,
+                        "response": resp,
+                        "predicted": pred,
+                        "correct": correct,
+                        "n_tokens": n_tokens,
+                        "max_new_tokens": args.max_new_tokens,
+                    }
+                    logger.info(
+                        f"[{unique_id}] sample {sample_idx}: {n_tokens} tokens, correct={correct}"
+                    )
+                    jsonl_f.write(json.dumps(row) + "\n")
+                    jsonl_f.flush()
 
     # -----------------------------------------------------------------------
-    # Step 4: Score
-    # pass@8: any-correct over n_samples
+    # Step 4: Score — aggregate 1-row-per-sample JSONL into per-problem stats
+    # pass@8: any-correct over n_samples per problem
     # pass@1: unbiased estimate mean(c_i/n_i) — Chen et al. 2021
     # -----------------------------------------------------------------------
+    # Re-read full JSONL (includes prior runs + this run)
+    from collections import defaultdict as _dd
+    problems: dict[str, dict] = {}
+    problem_samples: dict[str, list[dict]] = _dd(list)
+    with open(args.output_jsonl) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if not _line:
+                continue
+            _r = json.loads(_line)
+            uid = _r["unique_id"]
+            problem_samples[uid].append(_r)
+            if uid not in problems:
+                problems[uid] = {k: _r[k] for k in ("problem", "expected", "level", "subject")}
+
+    # Build per-problem result dicts compatible with compute_pass_at_k
+    results = []
+    pass1_estimates = []
+    for uid, meta in problems.items():
+        samples = problem_samples[uid]
+        n_correct = sum(s["correct"] for s in samples)
+        n = len(samples)
+        pass1_est = n_correct / n if n > 0 else 0.0
+        results.append({**meta, "samples": samples, "pass1_estimate": pass1_est})
+        pass1_estimates.append(pass1_est)
+
     pass8_stats = compute_pass_at_k(results, sample_key="samples")
-
-    pass1_estimates = [r["pass1_estimate"] for r in results]
     pass1_overall = sum(pass1_estimates) / len(pass1_estimates) if pass1_estimates else 0.0
-
-    delta_pass1 = pass1_overall - BASE_PASS1
 
     logger.info("=== RESULTS ===")
     logger.info(f"Model:            {args.model}")
     logger.info(f"Pass@1 (est c/n): {pass1_overall:.2%}  [unbiased from {args.n_samples} samples @ temp={args.temperature}]")
     logger.info(f"Pass@8:           {pass8_stats['overall']:.2%}")
-    logger.info(f"Base pass@1:      {BASE_PASS1:.2%}")
-    direction = "↑ improvement" if delta_pass1 >= 0 else "↓ regression"
-    logger.info(f"Delta vs base:    {delta_pass1:+.2%}  ({direction})")
+    logger.info(f"  (Baseline for comparison: 35.8% pass@1 greedy / 65.0% pass@8 — different methodology, see README)")
     logger.info("By level:")
     for lvl in sorted(pass8_stats["per_level"].keys(), key=int):
         p8 = pass8_stats["per_level"][lvl]["pass_at_k"]
@@ -483,12 +711,7 @@ def main():
         },
         "pass1_unbiased": round(pass1_overall, 4),
         "pass8": pass8_stats,
-        "delta_vs_base": {
-            "base_model": "Qwen/Qwen3-1.7B-Base",
-            "base_pass1": BASE_PASS1,
-            "sft_pass1_estimate": round(pass1_overall, 4),
-            "delta_pass1": round(delta_pass1, 4),
-        },
+        "baseline_note": "Apples-to-apples baseline: 24.55% pass@1 (c/n inferred from existing pass@8 data, math-verify). Greedy baseline was 35.8% (single sample, different methodology). See outputs/baseline_math500_mv_rescored.json.",
     }
     with open(args.output_summary, "w") as f:
         json.dump(summary, f, indent=2)
