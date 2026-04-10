@@ -173,10 +173,18 @@ Incident (2026-04-09): Subagent removed pod before rsyncing checkpoint-1000 (100
 - When value is `"auto"`, HF Trainer finds the latest checkpoint automatically
 
 #### OOM Notes
-- **Vocab OOM root cause:** Qwen3's 152k vocabulary → logits tensor ≈ `batch × seq_len × vocab × 2B` = ~40GB at seq_len=32768 with batch=2. Needs 80GB GPU (A100 or H100).
+- **Vocab OOM root cause:** Qwen3's 152k vocabulary → logits tensor ≈ `batch × seq_len × vocab × 2B`. At batch=2, seq=32768 this is ~40GB — OOM on A100. batch=1 brings it to ~9.3GB.
+- **Working config:** batch=1, grad_accum=16, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in env at launch
+- `expandable_segments:True` lets CUDA expand existing memory segments rather than requiring a contiguous block — prevents fragmentation OOM on long sequences even when total free memory is sufficient
 - `paged_adamw_8bit` does NOT fix logit OOM — forward-pass issue, not optimizer memory
-- liger-kernel would help but no compatible version for PyTorch 2.4 + transformers 5.5
+- **liger-kernel 0.7.0 is NOT compatible on PyTorch 2.4:** rms_norm patch requires `torch.distributed.tensor.DTensor` (PyTorch 2.5+ only) → crashes at step ~40. Do not use.
 - COMMUNITY cloud pods can get stuck (uptime=0, never ready) — use SECURE
+
+#### Disk Notes
+- One Qwen3-1.7B checkpoint ≈ 10GB (model.safetensors 3.3GB + optimizer.pt 6.8GB)
+- `save_total_limit=1` but there's a brief window where two checkpoints coexist (new written before old deleted)
+- Original 20GB volume hit disk-full at step 1000 (checkpoint-500 + checkpoint-1000 briefly coexisted)
+- **Use 100GB volume** to give plenty of room
 
 ### Evaluator
 - **math-verify** (`pip install 'math-verify[antlr4_13_2]'`) is the authoritative evaluator
