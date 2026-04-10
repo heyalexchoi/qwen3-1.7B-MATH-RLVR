@@ -14,8 +14,9 @@ export PATH="$HOME/.local/bin:$PATH"  # runpodctl lives here
 
 ## Current Pod
 
-- **Eval pod:** `zrszn3f053jgcj` — A40 48GB, `root@194.68.245.64 -p 22047`, $0.44/hr
+- **Eval pod:** `gol7yudqrlfn48` — H100 SXM 80GB, `root@64.247.201.44 -p 15452`, $2.99/hr
 - **Project path on pod:** `/workspace/qwen3-math-rlvr/`
+- **Status:** Pod up, deps installed (vLLM 0.19.0, math-verify), model synced. Eval NOT yet running — see PLAN.md → Current Run.
 
 ## GPU Selection
 
@@ -139,3 +140,10 @@ Before `pod remove`:
 - batch=1, grad_accum=16, `expandable_segments:True`, no liger-kernel
 - flash_attention_2, bfloat16, gradient_checkpointing, adamw_torch
 - max_seq_length=32768
+
+## Inference / Eval Notes
+
+- **vLLM is primary backend** for `sft_eval.py` — auto-detected, falls back to HF if not installed
+- HF fallback uses `flash_attention_2` if `flash_attn` is installed, else `sdpa`
+- `run_eval.sh` auto-installs vLLM if missing (`pip install vllm -q`)
+- **Tokenizer bug (transformers 4.57.6):** `extra_special_tokens` must be `{}` (dict), not a list — Qwen3 saves it as a list. Fix before loading: set `extra_special_tokens: {}` in `tokenizer_config.json`. Already patched in pod checkpoint; patch local copy too (see PLAN.md).

@@ -31,9 +31,18 @@ if [[ -f "${SECRETS_FILE}" ]]; then
 fi
 
 # ── CUDA allocator config ─────────────────────────────────────────────────────
-# Also set in the Python script itself, but belt-and-suspenders here.
-# Prevents fragmentation OOM on long sequences (A40/A100).
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+
+# ── Dependency check ──────────────────────────────────────────────────────────
+# vLLM is the primary inference backend. Install if not present.
+python3 -c "import vllm" 2>/dev/null || {
+    echo "vllm not found — installing..."
+    pip install vllm -q
+}
+# flash-attn: used by HF fallback path only. Requires compilation (~20 min).
+# Pre-install manually if needed: pip install flash-attn --no-build-isolation
+python3 -c "import flash_attn" 2>/dev/null && echo "flash_attn available" || echo "flash_attn not installed (HF fallback will use sdpa)"
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 MODEL="outputs/sft_checkpoint"

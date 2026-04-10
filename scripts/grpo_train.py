@@ -2,15 +2,15 @@
 """
 GRPO Training on MATH dataset using TRL GRPOTrainer.
 
-Trains from an SFT checkpoint using GRPO (group relative policy optimization)
-with a math-verify correctness reward. Targets MATH-style \\boxed{} answers.
+Trains from Qwen3-1.7B-Base using GRPO (group relative policy optimization)
+with a math-verify correctness reward. Uses few-shot raw text prompting
+(same format as baseline eval) — base model is text-completion, not chat.
 
 Input:  data/math_train.jsonl
         Fields: problem, solution (full solution with \\boxed{answer})
 Output: /workspace/qwen3-math-rlvr/outputs/grpo_checkpoint/
 
-Hardware: A100 80GB required — Qwen3's 152k vocab + 4096 completion length
-          will OOM on anything smaller.
+Hardware: H100 SXM 80GB (pod gol7yudqrlfn48, $2.99/hr)
 """
 
 import argparse
@@ -27,6 +27,8 @@ import yaml
 from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import GRPOConfig, GRPOTrainer
+
+from prompts import create_prompt, STOP_STRINGS
 
 os.environ["WANDB_PROJECT"] = "qwen3-math-rlvr"
 
@@ -114,24 +116,23 @@ def correctness_reward(completions: list[str], answer: list[str], **kwargs) -> l
     Binary correctness reward: 1.0 if predicted answer matches expected, 0.0 otherwise.
     Uses math-verify (ANTLR4/SymPy) with regex fallback.
     `answer` column is the pre-extracted ground-truth answer (no \\boxed{}).
+
+    Completions are truncated at STOP_STRINGS before answer extraction. TRL's
+    GRPOTrainer doesn't pass a tokenizer to generate(), so stop_strings can't be
+    set in GenerationConfig. Instead we truncate here: if the model continues the
+    few-shot pattern (writes "\\n\\nProblem: ..."), we'd otherwise extract the last
+    \\boxed{} from the fabricated problem, not the real answer.
     """
     rewards = []
     for completion, expected in zip(completions, answer):
-        predicted = extract_boxed(completion)
+        truncated = completion
+        for stop in STOP_STRINGS:
+            idx = truncated.find(stop)
+            if idx != -1:
+                truncated = truncated[:idx]
+        predicted = extract_boxed(truncated)
         is_correct = _mv_correct(predicted, expected)
         rewards.append(1.0 if is_correct else 0.0)
-    return rewards
-
-
-def format_reward(completions: list[str], **kwargs) -> list[float]:
-    """
-    Small format reward for producing \\boxed{} output.
-    Encourages the model to emit a structured answer even when wrong.
-    """
-    rewards = []
-    for completion in completions:
-        has_boxed = bool(re.search(r"\\boxed\{", completion))
-        rewards.append(0.1 if has_boxed else 0.0)
     return rewards
 
 
@@ -151,9 +152,10 @@ def load_math_for_grpo(data_path: str) -> Dataset:
     Dataset format expected:
       {"problem": "...", "solution": "... \\boxed{answer}"}
 
-    The `answer` column holds the pre-extracted ground-truth answer
-    (without \\boxed{}) for use in the reward function.
-    The `prompt` column is what the model receives as input.
+    `prompt` is a raw few-shot string (not chat messages) — GRPOTrainer skips
+    chat template when prompt is a plain string. This matches the format used
+    in the baseline eval (24.55% inferred pass@1).
+    `answer` holds the pre-extracted ground-truth for the reward function.
     """
     examples = []
     skipped = 0
@@ -170,12 +172,58 @@ def load_math_for_grpo(data_path: str) -> Dataset:
                 skipped += 1
                 continue
             examples.append({
-                "prompt": [{"role": "user", "content": problem}],
+                "prompt": create_prompt(problem),
                 "answer": answer,
             })
 
     logger.info(f"Loaded {len(examples)} examples ({skipped} skipped — missing problem/solution/answer)")
     return Dataset.from_list(examples)
+
+
+# ---------------------------------------------------------------------------
+# Zero-advantage batch skipping
+# ---------------------------------------------------------------------------
+
+class SkipZeroAdvantageGRPOTrainer(GRPOTrainer):
+    """GRPOTrainer that skips micro-batches where all advantages are zero.
+
+    When every rollout for a prompt has the same reward (all correct or all
+    incorrect), advantages = 0, loss = 0, gradient = 0. TRL still runs the
+    full forward+backward — this wastes compute, especially at high accuracy.
+
+    Returning a zero tensor from compute_loss is mathematically identical but
+    avoids the backward pass. The optimizer step still fires at the normal
+    gradient_accumulation_steps interval (gradient accumulation step counting
+    is based on forward passes, not nonzero gradients).
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._zero_adv_skips = 0
+        self._total_micro_steps = 0
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        self._total_micro_steps += 1
+        advantages = inputs.get("advantages")
+        # `(advantages == 0).all()` is exact for binary rewards (0.0/1.0) — no float
+        # noise. This fires when every rollout for this prompt got the same reward
+        # (all correct or all incorrect), which is the DAPO dynamic-sampling condition.
+        if advantages is not None and (advantages == 0).all():
+            self._zero_adv_skips += 1
+            skip_rate = self._zero_adv_skips / self._total_micro_steps
+            logger.info(
+                f"[zero-adv skip] micro_step={self._total_micro_steps} "
+                f"skips={self._zero_adv_skips} running_rate={skip_rate:.1%}"
+            )
+            loss = torch.tensor(0.0, requires_grad=True, device=inputs["input_ids"].device)
+            if return_outputs:
+                return loss, {}
+            return loss
+        return super().compute_loss(
+            model, inputs,
+            return_outputs=return_outputs,
+            num_items_in_batch=num_items_in_batch,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +236,7 @@ def load_config(config_path: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Checkpoint helpers (same pattern as 03_sft_train.py)
+# Checkpoint helpers
 # ---------------------------------------------------------------------------
 
 def find_latest_checkpoint(output_dir: str) -> str | None:
@@ -220,8 +268,8 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="/workspace/qwen3-math-rlvr/outputs/sft_checkpoint",
-        help="Path to SFT checkpoint or HF model ID to start from",
+        default="Qwen/Qwen3-1.7B-Base",
+        help="Base model ID or checkpoint path to start from",
     )
     parser.add_argument(
         "--data",
@@ -254,6 +302,12 @@ def main():
         default="heyalexchoi/qwen3-1.7b-math-grpo",
         help="HuggingFace Hub repo ID for push_to_hub",
     )
+    parser.add_argument(
+        "--max_steps",
+        type=int,
+        default=None,
+        help="Override num_train_epochs with a fixed step count. Use --max_steps 1 as a smoke test.",
+    )
     args = parser.parse_args()
 
     # Set up file logging — captures logging.* calls AND raw stderr (HF Trainer, CUDA warnings)
@@ -267,7 +321,7 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.StreamHandler(_log_fh),  # logging.* calls also go to file
+            logging.StreamHandler(_log_fh),
         ],
     )
     global logger
@@ -320,12 +374,13 @@ def main():
     logger.info(f"Dataset size: {len(dataset)} problems")
 
     # GRPOConfig
-    grpo_config = GRPOConfig(
+    grpo_kwargs = dict(
         output_dir=args.output,
+        max_steps=args.max_steps if args.max_steps is not None else -1,
         num_train_epochs=config.get("num_train_epochs", 1),
         per_device_train_batch_size=config.get("per_device_train_batch_size", 1),
         gradient_accumulation_steps=config.get("gradient_accumulation_steps", 8),
-        learning_rate=config.get("learning_rate", 5e-7),
+        learning_rate=config.get("learning_rate", 1e-6),
         lr_scheduler_type=config.get("lr_scheduler_type", "cosine"),
         warmup_ratio=config.get("warmup_ratio", 0.1),
         weight_decay=config.get("weight_decay", 0.01),
@@ -338,9 +393,12 @@ def main():
         seed=config.get("seed", 42),
         # GRPO-specific
         num_generations=config.get("num_generations", 8),
-        max_completion_length=config.get("max_completion_length", 4096),
+        max_completion_length=config.get("max_completion_length", 2048),
         max_prompt_length=config.get("max_prompt_length", 1024),
         temperature=config.get("temperature", 0.9),
+        # DAPO loss settings
+        loss_type=config.get("loss_type", "dapo"),
+        beta=config.get("beta", 0.0),
         # Reporting
         report_to="wandb",
         run_name="grpo-qwen3-1.7b-math",
@@ -350,7 +408,15 @@ def main():
         hub_strategy="checkpoint" if args.push_to_hub else "end",
     )
 
+    # epsilon_high: DAPO asymmetric upper clip ratio. Added only if present in config
+    # so that if TRL uses a different param name the error is clear at startup.
+    if "epsilon_high" in config:
+        grpo_kwargs["epsilon_high"] = config["epsilon_high"]
+
+    grpo_config = GRPOConfig(**grpo_kwargs)
+
     logger.info("GRPO config summary:")
+    logger.info(f"  model:                  {args.model}")
     logger.info(f"  num_generations:        {grpo_config.num_generations}")
     logger.info(f"  max_completion_length:  {grpo_config.max_completion_length}")
     logger.info(f"  temperature:            {grpo_config.temperature}")
@@ -358,18 +424,22 @@ def main():
     logger.info(f"  gradient_accumulation:  {grpo_config.gradient_accumulation_steps}")
     logger.info(f"  effective batch size:   {grpo_config.per_device_train_batch_size * grpo_config.gradient_accumulation_steps}")
     logger.info(f"  learning_rate:          {grpo_config.learning_rate}")
+    logger.info(f"  loss_type:              {grpo_config.loss_type}")
+    logger.info(f"  beta:                   {grpo_config.beta}")
+    if "epsilon_high" in config:
+        logger.info(f"  epsilon_high:           {config['epsilon_high']}")
     logger.info(f"  num_train_epochs:       {grpo_config.num_train_epochs}")
     logger.info(f"  push_to_hub:            {args.push_to_hub}")
     if args.push_to_hub:
         logger.info(f"  hub_repo_id:            {args.hub_repo_id}")
 
     # Trainer
-    trainer = GRPOTrainer(
+    trainer = SkipZeroAdvantageGRPOTrainer(
         model=model,
         args=grpo_config,
         processing_class=tokenizer,
         train_dataset=dataset,
-        reward_funcs=[correctness_reward, format_reward],
+        reward_funcs=[correctness_reward],
     )
 
     logger.info("Starting GRPO training...")
@@ -384,6 +454,7 @@ def main():
         trainer.push_to_hub()
         logger.info(f"Done pushing to HuggingFace Hub: {args.hub_repo_id}")
 
+    logger.info(f"Total zero-advantage batches skipped: {trainer._zero_adv_skips}")
     logger.info("Done.")
 
 

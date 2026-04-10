@@ -9,8 +9,12 @@ peft>=0.7.0
 trl>=1.0.0
 wandb>=0.16.0
 
-# Flash attention (optional but recommended)
-flash-attn>=2.5.0
+# vLLM — primary inference backend (continuous batching, fast batch eval)
+vllm>=0.4.0
+
+# Flash attention — optional, used by HF fallback path for long-sequence speed
+# Requires compilation: pip install flash-attn --no-build-isolation
+# flash-attn>=2.5.0
 
 # API clients
 anthropic>=0.40.0

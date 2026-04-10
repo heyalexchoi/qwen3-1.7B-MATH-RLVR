@@ -83,24 +83,7 @@ def answers_match(predicted: str, expected: str) -> bool:
 # Prompting
 # ---------------------------------------------------------------------------
 
-FEW_SHOT = """\
-Problem: What is the value of $2^3 - 3 \\cdot 2 + 1$?
-Solution: We compute $2^3 - 3 \\cdot 2 + 1 = 8 - 6 + 1 = 3$. The answer is $\\boxed{3}$.
-
-Problem: If $x + y = 10$ and $x - y = 4$, what is $xy$?
-Solution: Adding the equations gives $2x = 14$, so $x = 7$ and $y = 3$. Thus $xy = 7 \\cdot 3 = 21$. The answer is $\\boxed{21}$.
-
-Problem: A right triangle has legs of length 5 and 12. What is the hypotenuse?
-Solution: By the Pythagorean theorem, hypotenuse $= \\sqrt{5^2 + 12^2} = \\sqrt{25 + 144} = \\sqrt{169} = 13$. The answer is $\\boxed{13}$.
-
-Problem: How many ways can 3 books be arranged on a shelf from 5 distinct books?
-Solution: This is a permutation: $P(5,3) = 5 \\cdot 4 \\cdot 3 = 60$. The answer is $\\boxed{60}$.
-
-"""
-
-
-def create_prompt(problem: str) -> str:
-    return f"{FEW_SHOT}Problem: {problem}\nSolution:"
+from prompts import FEW_SHOT, create_prompt, STOP_STRINGS  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +109,8 @@ def generate_samples(
                 max_new_tokens=max_new_tokens,
                 do_sample=False,
                 pad_token_id=tokenizer.pad_token_id,
+                stop_strings=STOP_STRINGS,
+                tokenizer=tokenizer,
             )
         return [tokenizer.decode(out[0][input_len:], skip_special_tokens=True)]
 
@@ -140,6 +125,8 @@ def generate_samples(
             do_sample=True,
             temperature=temperature,
             pad_token_id=tokenizer.pad_token_id,
+            stop_strings=STOP_STRINGS,
+            tokenizer=tokenizer,
         )
     return [tokenizer.decode(out[i][input_len:], skip_special_tokens=True) for i in range(n)]
 

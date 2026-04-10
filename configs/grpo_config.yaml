@@ -6,11 +6,11 @@ attn_implementation: flash_attention_2
 
 # Training
 num_train_epochs: 1
-per_device_train_batch_size: 1       # A100 80GB — keep small; each step generates num_generations completions
+per_device_train_batch_size: 1       # H100 80GB — keep small; each step generates num_generations completions
 gradient_accumulation_steps: 8       # effective batch = 8
-learning_rate: 5.0e-7                # conservative for RL fine-tuning
-lr_scheduler_type: cosine
-warmup_ratio: 0.1
+learning_rate: 1.0e-6                # safe zone for zero-RL on small models (up from 5e-7)
+lr_scheduler_type: constant_with_warmup
+warmup_ratio: 0.05
 weight_decay: 0.01
 max_grad_norm: 0.1                   # clip tightly for RL stability
 
@@ -20,9 +20,16 @@ gradient_checkpointing: true
 
 # GRPO-specific
 num_generations: 8                   # G in GRPO — completions per prompt
-max_completion_length: 8192          # must be long enough for SFT model think blocks; 4096 truncates most rollouts → zero reward signal
+max_completion_length: 2048          # based on baseline eval correct-answer token distributions (N=862):
+                                     # p50=88, p95=417, p99=1024 (capped). 2048 ≈ 5× p95, ~4× cheaper than 8192.
 max_prompt_length: 1024
-temperature: 0.9                     # higher temp for diverse rollouts
+temperature: 0.9                     # higher temp for diverse rollouts (eval uses 0.7)
+
+# DAPO loss — asymmetric clipping for more exploration on upside
+loss_type: dapo
+beta: 0.0                            # no KL penalty — zero-RL from base model
+epsilon_high: 0.28                   # DAPO upper clip ratio (default lower is 0.2)
+                                     # NOTE: verify epsilon_high is the correct GRPOConfig param name in TRL 1.0.0
 
 # Logging / checkpointing
 logging_steps: 10
