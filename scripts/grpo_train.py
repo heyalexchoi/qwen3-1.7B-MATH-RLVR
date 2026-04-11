@@ -154,8 +154,8 @@ def load_math_for_grpo(data_path: str) -> Dataset:
     """
     Load MATH training data formatted for GRPO.
 
-    Dataset format expected:
-      {"problem": "...", "solution": "... \\boxed{answer}"}
+    Dataset format (math_train.jsonl):
+      {"problem": "...", "expected": "answer", "expected_solution": "... \\boxed{answer}", ...}
 
     `prompt` is a raw few-shot string (not chat messages) — GRPOTrainer skips
     chat template when prompt is a plain string. This matches the format used
@@ -168,12 +168,11 @@ def load_math_for_grpo(data_path: str) -> Dataset:
         for line in f:
             data = json.loads(line)
             problem = data.get("problem", "").strip()
-            solution = data.get("solution", "").strip()
-            if not problem or not solution:
-                skipped += 1
-                continue
-            answer = extract_answer_from_solution(solution)
+            # `expected` is the pre-extracted answer; fall back to extracting from `expected_solution`
+            answer = data.get("expected", "").strip()
             if not answer:
+                answer = extract_answer_from_solution(data.get("expected_solution", ""))
+            if not problem or not answer:
                 skipped += 1
                 continue
             examples.append({
@@ -181,7 +180,7 @@ def load_math_for_grpo(data_path: str) -> Dataset:
                 "answer": answer,
             })
 
-    logger.info(f"Loaded {len(examples)} examples ({skipped} skipped — missing problem/solution/answer)")
+    logger.info(f"Loaded {len(examples)} examples ({skipped} skipped — missing problem/answer)")
     return Dataset.from_list(examples)
 
 
