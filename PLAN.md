@@ -98,12 +98,21 @@ Monitor these in wandb/logs to catch problems early:
 - **`frac_reward_zero_std`**: should be ~10% at start (per table above). If much higher → reward too sparse, consider larger group size
 - **Clip ratios**: high_clip_ratio should be nonzero (model is exploring), not saturated (>0.5 means too aggressive)
 
-#### Pre-launch verification (REQUIRED — both checks must pass before training)
+#### Pre-launch verification (REQUIRED — all three checks must pass before training)
 
-Two gating checks to run before `grpo_train.py`. ~30 minutes total on pod.
+Run in order. ~35 minutes total on pod.
 
 ```bash
 cd /workspace/qwen3-math-rlvr
+
+# Check 0: Trainer instantiation smoke test (~2 min, GPU)
+# Confirms GRPOConfig accepts all params (epsilon_high, loss_type, beta, etc.) and
+# the trainer starts without error. Read the resolved-config dump in the log and
+# verify: epsilon_high=0.28, beta=0.0, loss_type=dapo, lr=1e-6,
+# lr_scheduler_type=constant_with_warmup, warmup_ratio=0.05, max_completion_length=2048.
+# Also confirm tokenizer.name_or_path matches --model (not a stale cached variant).
+python scripts/grpo_train.py --model Qwen/Qwen3-1.7B-Base --max_steps 1 2>&1 | tee logs/smoke_test.log
+# → no TypeError/ValueError at startup; config dump looks correct; exits cleanly
 
 # Check 1: Reward function parity with baseline eval scorer (~1 min, CPU-only)
 # Confirms GRPO reward function agrees with math-verify on the 4000 baseline rollouts.
