@@ -169,9 +169,10 @@ def load_math_for_grpo(data_path: str) -> Dataset:
             data = json.loads(line)
             problem = data.get("problem", "").strip()
             # `expected` is the pre-extracted answer; fall back to extracting from `expected_solution`
-            answer = data.get("expected", "").strip()
+            # Use `or ""` to handle explicit null values
+            answer = (data.get("expected") or "").strip()
             if not answer:
-                answer = extract_answer_from_solution(data.get("expected_solution", ""))
+                answer = extract_answer_from_solution(data.get("expected_solution") or "")
             if not problem or not answer:
                 skipped += 1
                 continue
