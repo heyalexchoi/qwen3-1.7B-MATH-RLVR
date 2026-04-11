@@ -1,5 +1,8 @@
 # Core
-torch>=2.1.0
+# torch 2.6.0+ required — TRL 1.0.0 imports FSDPModule which was added in PyTorch 2.6.
+# runpod/pytorch:2.4.0 image ships 2.4.1; upgrade after pod creation:
+#   pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+torch>=2.6.0
 transformers>=4.51.0
 datasets>=2.14.0
 accelerate>=0.25.0

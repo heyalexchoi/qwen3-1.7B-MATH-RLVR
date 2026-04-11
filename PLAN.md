@@ -144,10 +144,11 @@ See README → "GRPO from base: approach and parameters" for full parameter just
 
 ### Pod
 
-Pod `gol7yudqrlfn48` — started 2026-04-11, currently booting.
-- **H100 SXM 80GB, $2.99/hr**
-- vLLM 0.19.0, math-verify already installed
-- ⚠️ **If you kill a vLLM run**: check `nvidia-smi` for orphaned `VLLM::EngineCore` procs and kill them before restarting
+Pod `gol7yudqrlfn48` — GRPO training running, started 2026-04-11.
+- **H100 SXM 80GB, $2.99/hr** — `root@64.247.201.44 -p 17495`
+- torch 2.6.0 (upgraded from 2.4.1), TRL 1.0.0, math-verify installed
+- **~937 steps, ~2 hours** at 8s/step
+- wandb: https://wandb.ai/heyalexchoi/qwen3-math-rlvr/runs/u8ayis5i
 
 ### Output files (on pod)
 

@@ -14,9 +14,9 @@ export PATH="$HOME/.local/bin:$PATH"  # runpodctl lives here
 
 ## Current Pod
 
-- **Eval pod:** `gol7yudqrlfn48` — H100 SXM 80GB, `root@64.247.201.44 -p 15452`, $2.99/hr
+- **Pod:** `gol7yudqrlfn48` — H100 SXM 80GB, `root@64.247.201.44 -p 17495`, $2.99/hr
 - **Project path on pod:** `/workspace/qwen3-math-rlvr/`
-- **Status:** Pod up, deps installed (vLLM 0.19.0, math-verify), model synced. Eval NOT yet running — see PLAN.md → Current Run.
+- **Status:** GRPO training running (PID 2738). torch 2.6.0, TRL 1.0.0, math-verify installed.
 
 ## GPU Selection
 
@@ -34,7 +34,7 @@ Qwen3-1.7B SFT/GRPO **requires 80GB**: logits = `batch×seq×152k vocab×2B ≈ 
 runpodctl pod create \
   --name "clawd-sft" \
   --gpu-id "NVIDIA A100-SXM4-80GB" \
-  --image "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04" \
+  --image "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04" \  # see PyTorch upgrade note below
   --container-disk-in-gb 50 \
   --volume-in-gb 100 \
   --volume-mount-path "/workspace" \
@@ -81,21 +81,37 @@ Always write checkpoints and logs to `/workspace/` — container disk does NOT p
 
 ## Install Deps
 
+**PyTorch upgrade required first** — the `runpod/pytorch:2.4.0` image ships PyTorch 2.4.1, but TRL 1.0.0 requires 2.6.0+ (imports `FSDPModule` added in 2.6). Always upgrade before installing requirements:
+
 ```bash
+# Step 1: upgrade torch + torchvision to match (torchvision 0.19.x links against 2.4.1 and breaks)
+ssh ... "pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124 -q"
+
+# Step 2: install project requirements
 ssh ... "cd /workspace/qwen3-math-rlvr && pip install -r requirements.txt -q > /workspace/pip_install.log 2>&1 &"
+
+# Step 3: log in to wandb (writes to ~/.netrc, persists across sessions)
+ssh ... "wandb login <WANDB_API_KEY>"
 ```
 
-Fire and forget — check `/workspace/pip_install.log` for completion via cron, don't block-poll.
+Fire and forget step 2 — check `/workspace/pip_install.log` for completion, don't block-poll.
 
 ## Launch Training
 
 ```bash
-ssh ... "cd /workspace/qwen3-math-rlvr && \
-  source ~/.config/openclaw/secrets.env && \
-  export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True && \
-  nohup python scripts/sft_train.py [args] \
-  > /workspace/qwen3-math-rlvr/logs/train.log 2>&1 & echo pid:\$!"
+ssh ... << 'EOF'
+set -a; source /root/.secrets.env; set +a   # export all secrets to child processes
+cd /workspace/qwen3-math-rlvr
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+nohup python scripts/grpo_train.py --push_to_hub \
+  > /workspace/qwen3-math-rlvr/logs/grpo_launch.log 2>&1 &
+echo "PID: $!"
+EOF
 ```
+
+**`set -a` is required** — plain `source secrets.env` sets shell vars but doesn't export them to child processes. `set -a` marks all subsequent assignments for export; `set +a` turns it off again.
+
+`wandb login` (done at setup) writes to `~/.netrc`, which wandb always checks — belt-and-suspenders.
 
 Always `nohup` + absolute log path on `/workspace/`. Set a monitoring cron after launch.
 
