@@ -22,6 +22,42 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
+def load_tokenizer_safe(model_path: str):
+    """Load tokenizer with Qwen3 extra_special_tokens bug workaround.
+
+    Some Qwen3 checkpoints (SFT/instruct, and potentially GRPO outputs) save
+    extra_special_tokens as a list in tokenizer_config.json. transformers>=4.51
+    expects a dict and raises AttributeError: 'list' object has no attribute 'keys'.
+    Qwen3-1.7B-Base is unaffected (field is None). This is a no-op for base model.
+    """
+    try:
+        return AutoTokenizer.from_pretrained(model_path)
+    except (AttributeError, TypeError) as e:
+        if "extra_special_tokens" not in str(e) and "keys" not in str(e):
+            raise
+        # Patch the cached tokenizer_config.json and retry
+        from transformers.utils import cached_file
+        config_file = cached_file(model_path, "tokenizer_config.json")
+        with open(config_file) as f:
+            config = json.load(f)
+        if isinstance(config.get("extra_special_tokens"), list):
+            config["extra_special_tokens"] = {}
+            with open(config_file, "w") as f:
+                json.dump(config, f, indent=2)
+            print(f"Patched tokenizer_config.json: extra_special_tokens list → {{}}")
+        return AutoTokenizer.from_pretrained(model_path)
+
+# ---------------------------------------------------------------------------
+# math-verify — primary evaluator (ANTLR4/SymPy), regex fallback if missing
+# ---------------------------------------------------------------------------
+
+try:
+    from math_verify import parse as mv_parse, verify as mv_verify_fn
+    MATH_VERIFY_AVAILABLE = True
+except ImportError:
+    MATH_VERIFY_AVAILABLE = False
+
+
 # ---------------------------------------------------------------------------
 # Answer extraction
 # ---------------------------------------------------------------------------
@@ -65,17 +101,26 @@ def normalize(s: str) -> str:
 
 
 def answers_match(predicted: str, expected: str) -> bool:
-    """Compare predicted and expected answers."""
+    """Compare predicted and expected answers. Uses math-verify when available, regex fallback."""
+    if not predicted or not expected:
+        return False
+    if MATH_VERIFY_AVAILABLE:
+        try:
+            gold = mv_parse(f"${expected}$")
+            ans = mv_parse(f"${predicted}$")
+            if gold and ans:
+                return bool(mv_verify_fn(gold, ans))
+        except Exception:
+            pass
+    # Regex/numeric fallback
     p = normalize(predicted)
     e = normalize(expected)
     if p == e:
         return True
-    # Try numeric comparison
     try:
         return abs(float(p) - float(e)) < 1e-6
     except (ValueError, TypeError):
         pass
-    # Lowercase fallback
     return p.lower() == e.lower()
 
 
@@ -230,8 +275,9 @@ def main():
     # -----------------------------------------------------------------------
     # Step 2+3: Load model and run eval
     # -----------------------------------------------------------------------
+    print(f"Evaluator: {'math-verify (ANTLR4/SymPy)' if MATH_VERIFY_AVAILABLE else 'regex fallback — install math-verify[antlr4_13_2] for authoritative scoring'}")
     print(f"Loading model: {args.model}")
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    tokenizer = load_tokenizer_safe(args.model)
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
         dtype=torch.bfloat16,
@@ -300,6 +346,7 @@ def main():
     # Save
     output = {
         "model": args.model,
+        "evaluator": "math-verify" if MATH_VERIFY_AVAILABLE else "regex-fallback",
         "n_samples_pass8": args.n_samples,
         "temperature_pass8": args.temperature,
         "dataset_stats": {

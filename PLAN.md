@@ -67,7 +67,7 @@ GRPOTrainer supports raw string prompts natively (no chat template applied when 
 
 #### Config changes needed in `grpo_config.yaml`
 
-1. `max_completion_length: 2048` (down from 8192 — chosen based on baseline eval correct answer token distributions: p50=88, p95=417, p99=1024 — but note the baseline was capped at 1024 by `math500_eval.py` default, so true p99 is unknown. 2048 is ~5x p95 and likely covers the real p99 for a 1.7B base model's natural outputs. Saves ~4x compute vs 8192. See README → max_completion_length for full rationale. **TODO:** re-run baseline eval at higher cap — see Open Tasks.)
+1. `max_completion_length: 2048` (chosen based on measured response distributions across all 4,500 baseline responses: p99=~460 tokens, max=~740 tokens. 2048 is ~4× the uncapped p99. Only 0.2% of baseline responses approached the 1024 cap. Base model does not produce long chain-of-thought. See README → max_completion_length for full analysis.)
 2. `learning_rate: 1e-6` (up from 5e-7 — safe zone for zero-RL on small models)
 3. `epsilon_high: 0.28` (DAPO asymmetric clipping — more exploration on upside)
 4. `temperature: 0.9` (keep — higher than eval temp 0.7 for rollout diversity, standard for GRPO)
@@ -160,10 +160,122 @@ Pod `gol7yudqrlfn48` — GRPO training running, started 2026-04-11.
 
 ### On completion
 
-1. Eval GRPO checkpoint on MATH-500: `bash scripts/run_eval.sh --model outputs/grpo_checkpoint`
-2. Report greedy pass@1 + inferred pass@1 (c/n) + pass@8
-3. `PATH=$HOME/.local/bin:$PATH runpodctl pod stop gol7yudqrlfn48` — **STOP only, never remove**
-4. Update pipeline step [4] with results
+1. Rsync GRPO checkpoint to local (see `docs/runpod.md` → Rsync Outputs)
+2. Stop training pod: `PATH=$HOME/.local/bin:$PATH runpodctl pod stop gol7yudqrlfn48` — **STOP only, never remove**
+3. Eval GRPO checkpoint on a separate eval pod (see step [4a] below)
+4. Update pipeline step [4] and [4a] with results
+
+---
+
+## Step [4a]: GRPO Eval Plan
+
+Eval the GRPO checkpoint on a fresh A40 or L40S pod (48GB — fine for Qwen3-1.7B inference).
+
+### Why a separate pod
+
+Training pod is H100 at $2.99/hr. L40S or A40 is ~$0.39/hr and 48GB is sufficient for inference. Spin up, eval, stop.
+
+### Which eval script
+
+**Use `math500_eval.py`** — NOT `sft_eval.py`, NOT `baseline_eval.py`.
+
+| Script | Prompt format | Evaluator | Notes |
+|--------|--------------|-----------|-------|
+| `math500_eval.py` | few-shot (`create_prompt` from `prompts.py`) | **math-verify** (ANTLR4/SymPy) | ✅ Matches GRPO training format + authoritative evaluator |
+| `sft_eval.py` | chat template | math-verify | ❌ Format mismatch — GRPO trained on few-shot, not chat |
+| `baseline_eval.py` | few-shot (GSM8K-specific) | regex | ❌ Wrong dataset (GSM8K, not MATH-500) |
+
+The GRPO model was trained with few-shot raw text prompts (`Problem: ...\nSolution:`). Evaluating with chat template would change the input distribution. `math500_eval.py` uses the same `create_prompt()` from `prompts.py` as training — apples-to-apples. `math500_eval.py` now uses math-verify as its primary evaluator (added inline — same as `sft_eval.py`, with regex fallback if math-verify not installed).
+
+### Inference parameters
+
+`math500_eval.py` defaults (appropriate — do not override unless noted):
+
+| Param | Value | Source |
+|-------|-------|--------|
+| `--temperature` | 0.7 | Qwen3 non-thinking mode recommendation; matches baseline generation |
+| `--n_samples` | 8 | pass@8 sampling (same run does both pass@1 greedy + pass@8) |
+| `--max_new_tokens` | **2048** | ← override from default 1024 (`--max_new_tokens 2048`) |
+
+Greedy pass@1 is run automatically inside the same script (no separate invocation needed — `math500_eval.py` runs greedy + sampling in one pass).
+
+**vLLM not needed here.** At max_new_tokens=2048 on a 1.7B model, the GRPO checkpoint generates ~150-250 tokens on average (it never learned long chain-of-thought). HF backend on L40S runs the full eval in ~10-15 min. The "540s/problem HF is too slow" warning in the README applies to SFT eval at 8192 tokens with Qwen3 thinking-mode — not applicable here. If you add longer evals later, revisit.
+
+### Eval pod setup
+
+```bash
+# 1. Create L40S pod (preferred — faster than A40 at same VRAM; use A40 if L40S unavailable)
+runpodctl pod create \
+  --name "clawd-grpo-eval" \
+  --gpu-id "NVIDIA L40S" \
+  --image "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04" \
+  --container-disk-in-gb 30 \
+  --volume-in-gb 30 \
+  --volume-mount-path "/workspace" \
+  --ports "22/tcp" \
+  --cloud-type SECURE \
+  -o json
+
+# 2. Install deps (no torch upgrade needed — inference only, no TRL FSDPModule)
+ssh ... "cd /workspace/qwen3-math-rlvr && pip install transformers datasets torch tqdm math-verify[antlr4_13_2] -q"
+
+# 3. Rsync GRPO checkpoint + scripts to eval pod
+rsync -av -e "ssh -i ~/.runpod/ssh/RunPod-Key-Go -p <PORT> -o StrictHostKeyChecking=no" \
+  /home/dev/.openclaw/workspace/qwen3-math-rlvr/ \
+  root@<IP>:/workspace/qwen3-math-rlvr/ \
+  --exclude='outputs/sft_*' --exclude='__pycache__/' --exclude='.git/'
+
+# 4. Copy GRPO checkpoint (if not already rsynced)
+rsync -av -e "ssh -i ~/.runpod/ssh/RunPod-Key-Go -p <PORT> -o StrictHostKeyChecking=no" \
+  /home/dev/.openclaw/workspace/qwen3-math-rlvr/outputs/grpo_checkpoint/ \
+  root@<IP>:/workspace/qwen3-math-rlvr/outputs/grpo_checkpoint/
+```
+
+### Launch eval
+
+```bash
+ssh ... << 'EOF'
+cd /workspace/qwen3-math-rlvr
+nohup python scripts/math500_eval.py \
+  --model outputs/grpo_checkpoint \
+  --max_new_tokens 2048 \
+  --n_samples 8 \
+  --temperature 0.7 \
+  --output outputs/grpo_math500_results.json \
+  > logs/grpo_eval.log 2>&1 &
+echo "PID: $!"
+EOF
+```
+
+Runtime estimate: 500 problems × 8 samples × ~1s/sample on A40 ≈ ~70 min. Monitor via `tail -f logs/grpo_eval.log`.
+
+### Rsync results back + stop pod
+
+```bash
+rsync -avz -e "ssh -i ~/.runpod/ssh/RunPod-Key-Go -o StrictHostKeyChecking=no -p <PORT>" \
+  root@<IP>:/workspace/qwen3-math-rlvr/outputs/grpo_math500_results.json \
+  /home/dev/.openclaw/workspace/qwen3-math-rlvr/outputs/
+
+runpodctl pod stop <EVAL_POD_ID>  # stop — never remove
+```
+
+### Metrics to report
+
+After eval run, execute `rescore_math500.py` on the output to get inferred pass@1 (c/n):
+```bash
+python scripts/rescore_math500.py \
+  --input outputs/grpo_math500_results.json \
+  --output outputs/grpo_math500_mv_rescored.json
+```
+
+From `outputs/grpo_math500_mv_rescored.json` → `summary`:
+- `pass1_greedy` — greedy pass@1
+- `pass8` — pass@8
+- `pass1_inferred_cn` — inferred pass@1 (Chen et al. 2021 c/n estimator from pass@8 samples)
+- `pass1_by_level` and `pass8_by_level` — breakdown by difficulty
+- Compare to baseline: 35.80% greedy / 65.00% pass@8 / 24.55% inferred pass@1 (all math-verify)
+
+Then upload both eval outputs to HF (see Canonical Data Artifacts → HF artifact upload).
 
 ---
 
@@ -184,6 +296,7 @@ Target trajectory: base 24.55% (inferred c/n, sampling) → GRPO ~85-90% MATH-50
 [0] Data prep (GSM8K + MATH datasets)                         ✅
       ↓
 [1] Base eval — GSM8K + MATH-500                              ✅  24.55% pass@1 inferred (c/n) / 35.8% greedy / 65.0% pass@8
+         math500_eval.py → math500_results.json → rescore_math500.py → baseline_math500_mv_rescored.json
       ↓
 [2] Generate Qwen3-32B reasoning traces + rescore             ✅  7,154 correct traces (95.51%)
       ↓
@@ -235,7 +348,8 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 | `rescore_traces.py` | Regex normalizer fix; historical artifact, superseded by math-verify | ✅ Done |
 | `rescore_mathverify.py` | Rescore any trace JSONL with math-verify (ANTLR4/SymPy) | ✅ Done |
 | `rerun_truncated.py` | Re-run traces truncated at 16k tokens at 32k | ✅ Done |
-| `math500_eval.py` | Legacy MATH-500 eval (weak evaluator); superseded by `sft_eval.py` | ✅ Done (legacy) |
+| `math500_eval.py` | **Step 1**: generates MATH-500 responses (few-shot prompts, HF backend). Output: `outputs/math500_results.json`. Used for baseline and GRPO eval | ✅ Active |
+| `rescore_math500.py` | **Step 2**: scores `math500_results.json` with math-verify → `outputs/baseline_math500_mv_rescored.json`. Canonical source of 35.8% / 65.0% / 24.55% numbers | ✅ Active |
 | `sft_train.py` | SFT on 7,154 correct traces; chat template; completion-only loss; file logging; checkpoint auto-resume; `--push_to_hub` | ✅ Done |
 | `sft_eval.py` | MATH-500 eval with math-verify on any checkpoint; vLLM primary backend, HF fallback | ✅ Done (SFT ~0%) |
 | `check_reward_parity.py` | Pre-GRPO check 1: reward function parity with baseline eval scorer — CPU, ~1 min | ✅ Done — run before launching GRPO |
@@ -257,11 +371,43 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 - [x] **docs/findings.md**: Already deleted — content merged into README.
 - [x] **Greedy eval batching**: superseded — vLLM handles scheduling natively. HF batched fallback still present.
 - [x] **Fix SFT checkpoint tokenizer eos_token + grpo_train.py stop tokens**: Tokenizer saved correctly — `eos_token=<|im_end|>` (151645), `pad_token=<|endoftext|>` (151643). `generation_config.json` has `eos_token_id: 151645`. Both local checkpoint and HF Hub updated. No code overrides needed.
-- [ ] **Re-run baseline eval with higher `max_new_tokens` cap**: `math500_eval.py` defaulted to 1024, so the true p99 of correct-response token lengths is unknown. Re-run with e.g. 4096 or 8192 to get an uncapped distribution. If true p99 > 2048, revisit `max_completion_length` for GRPO.
+- [x] **Re-run baseline eval with higher `max_new_tokens` cap**: RESOLVED — not needed. Measured all 4,500 baseline responses: p99=597 words (~460 tokens), max=963 words (~740 tokens). Only 7/4,500 (0.2%) hit the 1024-token limit. Base model does not produce long chain-of-thought. Cap is not binding; baseline numbers are valid as-is.
 
 → See README → Key Findings for baseline numbers, trace quality, GPU/OOM notes, eval methodology, and decision rationale.
 
 ## Canonical Data Artifacts
+
+All eval outputs live in `outputs/` (gitignored). Durable copies are uploaded to HF dataset repo: [`heyalexchoi/qwen3-math-rlvr-results`](https://huggingface.co/datasets/heyalexchoi/qwen3-math-rlvr-results).
+
+### Eval output files
+
+| File | Script | Status | Description |
+|------|--------|--------|-------------|
+| `outputs/math500_results.json` | `math500_eval.py` | ✅ Exists locally | 500 problems × (1 greedy + 8 sampling responses), baseline, Qwen3-1.7B-Base |
+| `outputs/baseline_math500_mv_rescored.json` | `rescore_math500.py` | ✅ Exists locally | Baseline re-scored with math-verify: 35.80% / 65.00% / 24.55% |
+| `outputs/grpo_math500_results.json` | `math500_eval.py` | ⏳ Pending eval run | GRPO checkpoint responses |
+| `outputs/grpo_math500_mv_rescored.json` | `rescore_math500.py` | ⏳ Pending eval run | GRPO checkpoint re-scored with math-verify |
+
+### HF artifact upload (after eval)
+
+```bash
+# Create dataset repo (one-time)
+huggingface-cli repo create qwen3-math-rlvr-results --type dataset
+
+# Upload baseline artifacts (do now — these exist)
+huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
+  outputs/math500_results.json outputs/math500_results.json
+huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
+  outputs/baseline_math500_mv_rescored.json outputs/baseline_math500_mv_rescored.json
+
+# Upload GRPO artifacts (after eval run completes)
+huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
+  outputs/grpo_math500_results.json outputs/grpo_math500_results.json
+huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
+  outputs/grpo_math500_mv_rescored.json outputs/grpo_math500_mv_rescored.json
+```
+
+### Training data files
 
 | File | Description |
 |------|-------------|

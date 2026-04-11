@@ -23,7 +23,8 @@ export PATH="$HOME/.local/bin:$PATH"  # runpodctl lives here
 | GPU | VRAM | Use case | ~$/hr |
 |-----|------|----------|-------|
 | A100 SXM 80GB | 80GB | SFT/GRPO training (Qwen3 152k vocab @ 32k seq) | $1.49 |
-| A40 / L40S 48GB | 48GB | Eval only — OOMs on Qwen3 SFT/GRPO | $0.39 |
+| L40S 48GB | 48GB | **Preferred eval GPU** — ~2x faster than A40 (Ada Lovelace); OOMs on SFT/GRPO training | ~$0.39 |
+| A40 48GB | 48GB | Eval fallback if L40S unavailable — same VRAM, slower | ~$0.39 |
 | H100 80GB | 80GB | SFT/GRPO if A100 unavailable | ~$2.49 |
 
 Qwen3-1.7B SFT/GRPO **requires 80GB**: logits = `batch×seq×152k vocab×2B ≈ 40GB` at seq=32768. A40 is fine for inference/eval only.
@@ -165,4 +166,4 @@ Before `pod remove`:
 - **vLLM is primary backend** for `sft_eval.py` — auto-detected, falls back to HF if not installed
 - HF fallback uses `flash_attention_2` if `flash_attn` is installed, else `sdpa`
 - `run_eval.sh` auto-installs vLLM if missing (`pip install vllm -q`)
-- **Tokenizer bug (transformers 4.57.6):** `extra_special_tokens` must be `{}` (dict), not a list — Qwen3 saves it as a list. Fix before loading: set `extra_special_tokens: {}` in `tokenizer_config.json`. Already patched in pod checkpoint; patch local copy too (see PLAN.md).
+- **Tokenizer bug:** Qwen3 SFT/instruct checkpoints may save `extra_special_tokens` as a list — `transformers>=4.51` crashes on load. `math500_eval.py` auto-patches on load. See README → "Qwen3 tokenizer: extra_special_tokens must be a dict" for details.
