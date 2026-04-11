@@ -127,29 +127,13 @@ python scripts/check_rollout_termination.py
 # → PASS / FAIL + diagnostics + rollouts saved to outputs/check_rollout_termination.json
 ```
 
-**Both must print PASS before launching.** Either fails → fix and re-run the failing check.
+**All three must pass before launching.** Any failure → fix and re-run that check only.
 Do not start the real run "in parallel" with debugging.
-
-#### Smoke test (required — run before full launch)
-
-```bash
-# On pod — only after both pre-launch checks pass
-cd /workspace/qwen3-math-rlvr
-python scripts/grpo_train.py --model Qwen/Qwen3-1.7B-Base --max_steps 1
-```
-
-Verify in the log output:
-- Config summary logged correctly (model, num_generations=8, max_completion_length=2048, loss_type=dapo, etc.)
-- Step 1 completes without error
-- Mean reward at step 1 is in the ~20-25% range (matching baseline — if 0%, stop token broken)
-- Completion lengths look sane (well under 2048)
-
-Only proceed to full launch if smoke test passes cleanly. Kill the smoke test process before starting the real run.
 
 #### Launch
 
 ```bash
-# On pod — only after smoke test passes
+# On pod — only after all three checks pass
 cd /workspace/qwen3-math-rlvr
 nohup python scripts/grpo_train.py --model Qwen/Qwen3-1.7B-Base --push_to_hub \
   > logs/grpo_launch.log 2>&1 &
