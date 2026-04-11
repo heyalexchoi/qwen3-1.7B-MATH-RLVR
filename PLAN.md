@@ -9,7 +9,7 @@ For session history and decisions, see `memory/math-rlvr.md`.
 
 ## Current Run
 
-**Phase:** GRPO training from base model — ⏳ READY — code changes needed before launch
+**Phase:** GRPO training from base model — ⏳ READY TO LAUNCH — all code changes applied, pre-launch checks pending
 
 ### SFT eval outcome (completed 2026-04-10)
 
@@ -180,7 +180,7 @@ Target trajectory: base 24.55% (inferred c/n, sampling) → GRPO ~85-90% MATH-50
       ↓
 [3a] SFT eval — MATH-500 (sft_eval.py)                        ✅ ~0% — both checkpoints degenerate (capacity, not training bug)
       ↓
-[4] GRPO from base model (grpo_train.py)                      ⏳ READY — code changes needed, then launch
+[4] GRPO from base model (grpo_train.py)                      ⏳ READY — start pod, run pre-launch checks, launch
       ↓
 [4a] GRPO eval — MATH-500 (sft_eval.py --model grpo_checkpoint) ⏳ pending  target ~85-90%
       ↓
@@ -229,7 +229,7 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 | `sft_eval.py` | MATH-500 eval with math-verify on any checkpoint; vLLM primary backend, HF fallback | ✅ Done (SFT ~0%) |
 | `check_reward_parity.py` | Pre-GRPO check 1: reward function parity with baseline eval scorer — CPU, ~1 min | ✅ Done — run before launching GRPO |
 | `check_rollout_termination.py` | Pre-GRPO check 2: stop token and rollout termination sanity — GPU, ~25 min | ✅ Done — run before launching GRPO |
-| `grpo_train.py` | GRPO with math-verify reward on MATH dataset; starts from base model; `--push_to_hub` | ⏳ Ready — code changes needed |
+| `grpo_train.py` | GRPO with math-verify reward on MATH dataset; starts from base model; `--push_to_hub` | ⏳ Ready — pre-launch checks required, then launch |
 | `eval_comparison.py` | Comparison aggregator — reads already-computed summary JSONs, prints base→SFT→GRPO table. No inference. | ⏳ Pending |
 
 ### Historical scripts (done, not re-run)
