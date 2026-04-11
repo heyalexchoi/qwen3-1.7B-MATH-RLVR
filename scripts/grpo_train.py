@@ -480,7 +480,6 @@ def main():
         # GRPO-specific
         num_generations=config.get("num_generations", 8),
         max_completion_length=config.get("max_completion_length", 2048),
-        max_prompt_length=config.get("max_prompt_length", 1024),
         temperature=config.get("temperature", 0.9),
         # DAPO loss settings
         loss_type=config.get("loss_type", "dapo"),

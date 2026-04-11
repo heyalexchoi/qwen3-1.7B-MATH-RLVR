@@ -22,7 +22,6 @@ gradient_checkpointing: true
 num_generations: 8                   # G in GRPO — completions per prompt
 max_completion_length: 2048          # based on baseline eval correct-answer token distributions (N=862):
                                      # p50=88, p95=417, p99=1024 (capped). 2048 ≈ 5× p95, ~4× cheaper than 8192.
-max_prompt_length: 1024
 temperature: 0.9                     # higher temp for diverse rollouts (eval uses 0.7)
 
 # DAPO loss — asymmetric clipping for more exploration on upside
