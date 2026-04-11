@@ -293,7 +293,7 @@ class SkipZeroAdvantageGRPOTrainer(GRPOTrainer):
                     f"[zero-adv skip #{self._zero_adv_skips}] "
                     f"running_rate={self._zero_adv_skips / self._total_micro_steps:.1%}"
                 )
-            loss = torch.tensor(0.0, requires_grad=True, device=inputs["input_ids"].device)
+            loss = torch.tensor(0.0, requires_grad=True, device=next(model.parameters()).device)
             if return_outputs:
                 return loss, {}
             return loss

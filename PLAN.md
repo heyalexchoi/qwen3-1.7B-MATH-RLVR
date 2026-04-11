@@ -9,7 +9,7 @@ For session history and decisions, see `memory/math-rlvr.md`.
 
 ## Current Run
 
-**Phase:** GRPO training from base model — ⏳ READY TO LAUNCH — all code changes applied, pre-launch checks pending
+**Phase:** GRPO training from base model — 🔄 RUNNING (PID 3235, started 2026-04-11 01:19 UTC)
 
 ### SFT eval outcome (completed 2026-04-10)
 
@@ -144,11 +144,13 @@ See README → "GRPO from base: approach and parameters" for full parameter just
 
 ### Pod
 
+> **Before any pod operation** (create, launch, rsync, stop, remove): read `docs/runpod.md` first. It has the correct SSH key path, launch command with `set -a` secrets sourcing, pre-removal checklist, and known gotchas.
+
 Pod `gol7yudqrlfn48` — GRPO training running, started 2026-04-11.
 - **H100 SXM 80GB, $2.99/hr** — `root@64.247.201.44 -p 17495`
 - torch 2.6.0 (upgraded from 2.4.1), TRL 1.0.0, math-verify installed
 - **~937 steps, ~2 hours** at 8s/step
-- wandb: https://wandb.ai/heyalexchoi/qwen3-math-rlvr/runs/u8ayis5i
+- wandb: https://wandb.ai/heyalexchoi/qwen3-math-rlvr/runs/ckz7jwil
 
 ### Output files (on pod)
 
@@ -189,7 +191,7 @@ Target trajectory: base 24.55% (inferred c/n, sampling) → GRPO ~85-90% MATH-50
       ↓
 [3a] SFT eval — MATH-500 (sft_eval.py)                        ✅ ~0% — both checkpoints degenerate (capacity, not training bug)
       ↓
-[4] GRPO from base model (grpo_train.py)                      ⏳ READY — start pod, run pre-launch checks, launch
+[4] GRPO from base model (grpo_train.py)                      🔄 RUNNING — PID 3235, wandb ckz7jwil, ~2hr ETA
       ↓
 [4a] GRPO eval — MATH-500 (sft_eval.py --model grpo_checkpoint) ⏳ pending  target ~85-90%
       ↓

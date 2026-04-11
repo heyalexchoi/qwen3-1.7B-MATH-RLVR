@@ -16,7 +16,7 @@ export PATH="$HOME/.local/bin:$PATH"  # runpodctl lives here
 
 - **Pod:** `gol7yudqrlfn48` — H100 SXM 80GB, `root@64.247.201.44 -p 17495`, $2.99/hr
 - **Project path on pod:** `/workspace/qwen3-math-rlvr/`
-- **Status:** GRPO training running (PID 2738). torch 2.6.0, TRL 1.0.0, math-verify installed.
+- **Status:** GRPO training running (PID 3235, wandb `ckz7jwil`). torch 2.6.0, TRL 1.0.0, math-verify installed.
 
 ## GPU Selection
 
@@ -92,15 +92,20 @@ ssh ... "cd /workspace/qwen3-math-rlvr && pip install -r requirements.txt -q > /
 
 # Step 3: log in to wandb (writes to ~/.netrc, persists across sessions)
 ssh ... "wandb login <WANDB_API_KEY>"
+
+# Step 4: log in to HuggingFace Hub (writes to ~/.cache/huggingface/token, persists across sessions)
+ssh ... "huggingface-cli login --token <HF_TOKEN>"
 ```
 
 Fire and forget step 2 — check `/workspace/pip_install.log` for completion, don't block-poll.
+
+**Why explicit logins?** `~/.config/openclaw/secrets.env` uses bare `KEY=VALUE` format (no `export`). Plain `source secrets.env` sets shell vars but doesn't propagate them to child processes. `set -a; source; set +a` works for one-off commands but isn't persistent. Writing to `~/.netrc` (wandb) and `~/.cache/huggingface/token` (HF) avoids env-var dependency entirely — these files are always checked by their respective clients.
 
 ## Launch Training
 
 ```bash
 ssh ... << 'EOF'
-set -a; source /root/.secrets.env; set +a   # export all secrets to child processes
+set -a; source /root/.secrets.env; set +a   # ⚠️ REQUIRED — do not omit
 cd /workspace/qwen3-math-rlvr
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 nohup python scripts/grpo_train.py --push_to_hub \
@@ -109,9 +114,7 @@ echo "PID: $!"
 EOF
 ```
 
-**`set -a` is required** — plain `source secrets.env` sets shell vars but doesn't export them to child processes. `set -a` marks all subsequent assignments for export; `set +a` turns it off again.
-
-`wandb login` (done at setup) writes to `~/.netrc`, which wandb always checks — belt-and-suspenders.
+**`set -a` is required — do not omit.** Plain `source secrets.env` sets shell vars but doesn't export them to child processes. Without it, `HUGGING_FACE_HUB_TOKEN` is invisible to the training script and the hub push fails with 401. `wandb login` (done at setup) writes to `~/.netrc`, which wandb checks independently — belt-and-suspenders for wandb, but `HF_TOKEN` has no equivalent file-based auth, so `set -a` is the only fix for HF.
 
 Always `nohup` + absolute log path on `/workspace/`. Set a monitoring cron after launch.
 

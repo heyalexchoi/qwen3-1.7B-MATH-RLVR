@@ -4,6 +4,7 @@ Demonstrating distillation + RLVR on math reasoning with Qwen3-1.7B-Base.
 
 → **Full pipeline plan, findings, and decisions:** [`PLAN.md`](PLAN.md)
 → **Active run / current phase:** [`PLAN.md`](PLAN.md) → Current Run
+→ **Pod setup, SSH, launch commands, pre-removal checklist:** [`docs/runpod.md`](docs/runpod.md) — read this before any pod operation
 → **Session log:** [`memory/math-rlvr.md`](../memory/math-rlvr.md)
 
 ---
