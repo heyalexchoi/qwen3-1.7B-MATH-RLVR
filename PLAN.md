@@ -383,8 +383,8 @@ All eval outputs live in `outputs/` (gitignored). Durable copies are uploaded to
 
 | File | Script | Status | Description |
 |------|--------|--------|-------------|
-| `outputs/math500_results.json` | `math500_eval.py` | ✅ Exists locally | 500 problems × (1 greedy + 8 sampling responses), baseline, Qwen3-1.7B-Base |
-| `outputs/baseline_math500_mv_rescored.json` | `rescore_math500.py` | ✅ Exists locally | Baseline re-scored with math-verify: 35.80% / 65.00% / 24.55% |
+| `outputs/math500_results.json` | `math500_eval.py` | ✅ On HF | 500 problems × (1 greedy + 8 sampling responses), baseline, Qwen3-1.7B-Base |
+| `outputs/baseline_math500_mv_rescored.json` | `rescore_math500.py` | ✅ On HF | Baseline re-scored with math-verify: 35.80% / 65.00% / 24.55% |
 | `outputs/grpo_math500_results.json` | `math500_eval.py` | ⏳ Pending eval run | GRPO checkpoint responses |
 | `outputs/grpo_math500_mv_rescored.json` | `rescore_math500.py` | ⏳ Pending eval run | GRPO checkpoint re-scored with math-verify |
 
