@@ -354,7 +354,7 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 | `sft_eval.py` | MATH-500 eval with math-verify on any checkpoint; vLLM primary backend, HF fallback | ✅ Done (SFT ~0%) |
 | `check_reward_parity.py` | Pre-GRPO check 1: reward function parity with baseline eval scorer — CPU, ~1 min | ✅ Done — run before launching GRPO |
 | `check_rollout_termination.py` | Pre-GRPO check 2: stop token and rollout termination sanity — GPU, ~25 min | ✅ Done — run before launching GRPO |
-| `grpo_train.py` | GRPO with math-verify reward on MATH dataset; starts from base model; `--push_to_hub` | ⏳ Ready — pre-launch checks required, then launch |
+| `grpo_train.py` | GRPO with math-verify reward on MATH dataset; starts from base model; `--push_to_hub` | 🔄 Running — PID 3235, wandb ckz7jwil |
 | `eval_comparison.py` | Comparison aggregator — reads already-computed summary JSONs, prints base→SFT→GRPO table. No inference. | ⏳ Pending |
 
 ### Historical scripts (done, not re-run)
@@ -388,23 +388,32 @@ All eval outputs live in `outputs/` (gitignored). Durable copies are uploaded to
 | `outputs/grpo_math500_results.json` | `math500_eval.py` | ⏳ Pending eval run | GRPO checkpoint responses |
 | `outputs/grpo_math500_mv_rescored.json` | `rescore_math500.py` | ⏳ Pending eval run | GRPO checkpoint re-scored with math-verify |
 
-### HF artifact upload (after eval)
+### HF artifact upload
 
-```bash
-# Create dataset repo (one-time)
-huggingface-cli repo create qwen3-math-rlvr-results --type dataset
+Repo `heyalexchoi/qwen3-math-rlvr-results` created. Baseline artifacts uploaded ✅.
 
-# Upload baseline artifacts (do now — these exist)
-huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
-  outputs/math500_results.json outputs/math500_results.json
-huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
-  outputs/baseline_math500_mv_rescored.json outputs/baseline_math500_mv_rescored.json
+After GRPO eval, upload with the HF Python API (huggingface-cli may not be in PATH):
+```python
+from huggingface_hub import HfApi
+import os, json
 
-# Upload GRPO artifacts (after eval run completes)
-huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
-  outputs/grpo_math500_results.json outputs/grpo_math500_results.json
-huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
-  outputs/grpo_math500_mv_rescored.json outputs/grpo_math500_mv_rescored.json
+secrets = {}
+with open(os.path.expanduser('~/.config/openclaw/secrets.env')) as f:
+    for line in f:
+        if '=' in line and not line.startswith('#'):
+            k, v = line.split('=', 1)
+            secrets[k.strip()] = v.strip()
+token = secrets.get('HF_TOKEN') or secrets.get('HUGGING_FACE_HUB_TOKEN')
+api = HfApi(token=token)
+
+for fname in ['grpo_math500_results.json', 'grpo_math500_mv_rescored.json']:
+    api.upload_file(
+        path_or_fileobj=f'outputs/{fname}',
+        path_in_repo=f'outputs/{fname}',
+        repo_id='heyalexchoi/qwen3-math-rlvr-results',
+        repo_type='dataset',
+    )
+    print(f'Uploaded {fname}')
 ```
 
 ### Training data files
