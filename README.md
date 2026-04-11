@@ -232,11 +232,9 @@ SFT distillation failed because the 1.7B model cannot reproduce 32B-style reason
 
 Qwen3 SFT/instruct checkpoints save `extra_special_tokens` as a list in `tokenizer_config.json`. `transformers>=4.51` expects a dict and crashes with `AttributeError: 'list' object has no attribute 'keys'`.
 
-**Affected:** SFT checkpoints and potentially GRPO checkpoints (saved by TRL from an SFT-style tokenizer). **Not affected:** `Qwen3-1.7B-Base` from HF Hub (field is `None` — this is why the original baseline eval completed without errors).
+**Affected:** SFT checkpoints — SFT added chat special tokens to the tokenizer, which caused `extra_special_tokens` to be saved as a list. **Not affected:** `Qwen3-1.7B-Base` (field is `None`) or GRPO checkpoints (GRPO starts from the base tokenizer with no special-token modifications — also `None`).
 
-**Fix is automatic:** `math500_eval.py` calls `load_tokenizer_safe()`, which catches the crash, patches the cached `tokenizer_config.json` in-place (`extra_special_tokens: []` → `{}`), and retries. One-time patch per checkpoint per machine; subsequent loads succeed.
-
-If you need to patch manually (e.g. for `grpo_train.py` or other scripts):
+`math500_eval.py` calls `load_tokenizer_safe()` as a precautionary no-op for base/GRPO evals. If you need to patch an SFT checkpoint manually:
 ```python
 import json
 c = json.load(open("tokenizer_config.json"))
@@ -244,7 +242,7 @@ if isinstance(c.get("extra_special_tokens"), list):
     c["extra_special_tokens"] = {}
     json.dump(c, open("tokenizer_config.json", "w"), indent=2)
 ```
-Apply to `outputs/sft_checkpoint/tokenizer_config.json`, `outputs/grpo_checkpoint/tokenizer_config.json`, and any `checkpoint-N/tokenizer_config.json`. Already patched in local checkpoints in this repo.
+Apply to `outputs/sft_checkpoint/tokenizer_config.json` and any `checkpoint-N/tokenizer_config.json`. Already patched in local SFT checkpoint.
 
 ### vLLM: kill orphaned EngineCore before restarting
 
