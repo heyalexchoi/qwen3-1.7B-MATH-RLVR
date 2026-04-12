@@ -14,9 +14,13 @@ export PATH="$HOME/.local/bin:$PATH"  # runpodctl lives here
 
 ## Current Pod
 
-- **Pod:** `gol7yudqrlfn48` — H100 SXM 80GB, `root@64.247.201.44 -p 17495`, $2.99/hr
+- **Pod:** `ees8jnpvmidfzk` — L40S 48GB, `root@103.196.86.48 -p 28401`, $0.86/hr
 - **Project path on pod:** `/workspace/qwen3-math-rlvr/`
-- **Status:** GRPO training running (PID 3235, wandb `ckz7jwil`). torch 2.6.0, TRL 1.0.0, math-verify installed.
+- **Status:** GRPO training running (PID 755, resumed from step 5000/epoch 0.667). torch 2.6.0, TRL 1.0.0, math-verify installed.
+
+## Previous Pod (stopped)
+
+- **Pod:** `gol7yudqrlfn48` — H100 SXM 80GB, stopped 2026-04-12 00:50 UTC. Training ran from step 0 to ~step 5720 (epoch 0.697). Last pushed checkpoint: step 5000 (epoch 0.667) at `heyalexchoi/qwen3-1.7b-math-grpo/last-checkpoint`.
 
 ## GPU Selection
 
