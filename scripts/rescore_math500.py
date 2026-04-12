@@ -63,7 +63,12 @@ def upload_artifact(local_path: str, repo_id: str = HF_RESULTS_REPO) -> None:
 
 
 def mv_correct(predicted: str, expected: str) -> bool:
-    """Score predicted vs expected with math-verify. Returns bool."""
+    """Score predicted vs expected with math-verify. Returns bool.
+
+    Returns False if math-verify cannot parse either expression (expected for
+    malformed answers). Any unexpected exception is logged loudly to stderr —
+    these should not occur in normal operation.
+    """
     if not predicted or not expected:
         return False
     try:
@@ -71,9 +76,16 @@ def mv_correct(predicted: str, expected: str) -> bool:
         ans = mv_parse(f"${predicted}$")
         if gold and ans:
             return bool(mv_verify_fn(gold, ans))
+        return False
     except Exception:
-        pass
-    return False
+        import traceback
+        print(
+            f"\nWARNING: math-verify raised an exception (expected={expected!r}, predicted={predicted!r}):\n"
+            + traceback.format_exc(),
+            file=sys.stderr,
+            flush=True,
+        )
+        return False
 
 
 def rescore_samples(samples: list[dict], expected: str) -> tuple[list[dict], list[bool]]:
