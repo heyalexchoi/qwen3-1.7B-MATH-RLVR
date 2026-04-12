@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import sys
+import time
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -119,6 +120,7 @@ def extract_boxed(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 _reward_pool: ProcessPoolExecutor | None = None
+_reward_call_count: int = 0
 
 
 def _get_reward_pool() -> ProcessPoolExecutor:
@@ -159,6 +161,10 @@ def correctness_reward(completions: list[str], answer: list[str], **kwargs) -> l
     which holds the GIL) is dispatched to a persistent ProcessPoolExecutor so all
     8 calls run in parallel rather than serially.
     """
+    global _reward_call_count
+    _reward_call_count += 1
+    t0 = time.perf_counter()
+
     pairs = []
     for completion, expected in zip(completions, answer):
         truncated = completion
@@ -168,8 +174,21 @@ def correctness_reward(completions: list[str], answer: list[str], **kwargs) -> l
                 truncated = truncated[:idx]
         predicted = extract_boxed(truncated)
         pairs.append((predicted, expected))
+    t1 = time.perf_counter()
+
     pool = _get_reward_pool()
-    return list(pool.map(_eval_pair, pairs))
+    results = list(pool.map(_eval_pair, pairs))
+    t2 = time.perf_counter()
+
+    # Log every 50 calls (~5 optimizer steps) to track reward eval cost over time
+    if _reward_call_count % 50 == 1:
+        logger.info(
+            f"[reward timing #{_reward_call_count}] "
+            f"extract={t1-t0:.3f}s  pool.map={t2-t1:.3f}s  total={t2-t0:.3f}s  "
+            f"n={len(pairs)}"
+        )
+
+    return [1.0 if r else 0.0 for r in results]
 
 
 # ---------------------------------------------------------------------------
