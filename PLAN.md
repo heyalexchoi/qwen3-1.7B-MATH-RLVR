@@ -159,7 +159,7 @@ Pod `gol7yudqrlfn48` — GRPO training running, started 2026-04-11.
 
 Eval pod `qzwfoxy4bfc4fd` — eval COMPLETE, pod stopped.
 - Results: greedy 44.20% / pass@8 71.40% / inferred 36.83% (checkpoint-3000, epoch 0.40)
-- Outputs rsynced to local + rescored: `outputs/grpo_math500_results.json`, `outputs/grpo_math500_mv_rescored.json`
+- Artifacts on HF: `outputs/grpo_step3000_math500_results.json`, `outputs/grpo_step3000_math500_mv_rescored.json`
 
 ### Output files (on pod)
 
@@ -198,13 +198,13 @@ The GRPO model was trained with few-shot raw text prompts (`Problem: ...\nSoluti
 
 ### Inference parameters
 
-`math500_eval.py` defaults (appropriate — do not override unless noted):
+`math500_eval.py` methodology is **locked as constants** (not CLI args — cannot be accidentally overridden):
 
-| Param | Value | Source |
-|-------|-------|--------|
-| `--temperature` | 0.7 | Qwen3 non-thinking mode recommendation; matches baseline generation |
-| `--n_samples` | 8 | pass@8 sampling (same run does both pass@1 greedy + pass@8) |
-| `--max_new_tokens` | **2048** | ← override from default 1024 (`--max_new_tokens 2048`) |
+| Param | Value | Rationale |
+|-------|-------|-----------|
+| `MAX_NEW_TOKENS` | 2048 | ~4× uncapped p99 of base model outputs; covers natural completion lengths |
+| `N_SAMPLES` | 8 | pass@8 sampling + inferred pass@1 (c/n) |
+| `TEMPERATURE` | 0.7 | Qwen3 non-thinking mode recommendation; matches baseline generation |
 
 Greedy pass@1 is run automatically inside the same script (no separate invocation needed — `math500_eval.py` runs greedy + sampling in one pass).
 
@@ -246,38 +246,48 @@ cd /workspace/qwen3-math-rlvr
 mkdir -p logs outputs
 nohup python scripts/math500_eval.py \
   --model heyalexchoi/qwen3-1.7b-math-grpo \
-  --checkpoint_step <STEP> \
-  > logs/grpo_eval_step<STEP>.log 2>&1 &
+  --latest \
+  --upload \
+  > logs/grpo_eval.log 2>&1 &
 echo "PID: $!"
 EOF
 ```
 
-Output auto-named: `outputs/grpo_step<STEP>_math500_results.json`.
-To pin a specific HF commit: add `--revision <commit_hash>` (see HF commit history).
+`--latest` queries HF commit history, finds the highest step, auto-names output `outputs/grpo_step<N>_math500_results.json`.
+`--upload` pushes the result directly to `heyalexchoi/qwen3-math-rlvr-results` — no rsync needed.
+To eval a specific step: `--checkpoint_step <N>` (and optionally `--revision <commit_hash>` to pin the exact HF commit).
 Methodology locked in script constants: `MAX_NEW_TOKENS=2048`, `N_SAMPLES=8`, `TEMPERATURE=0.7`.
 
 Runtime estimate: 500 problems × 8 samples × ~1s/sample on A40 ≈ ~70 min. Monitor via `tail -f logs/grpo_eval.log`.
 
-### Rsync results back + stop pod
+### Upload results to HF + stop pod
+
+Artifacts go directly to HF — no rsync needed. Run from eval pod:
 
 ```bash
-rsync -avz -e "ssh -i ~/.runpod/ssh/RunPod-Key-Go -o StrictHostKeyChecking=no -p <PORT>" \
-  root@<IP>:/workspace/qwen3-math-rlvr/outputs/grpo_math500_results.json \
-  /home/dev/.openclaw/workspace/qwen3-math-rlvr/outputs/
+cd /workspace/qwen3-math-rlvr
 
-runpodctl pod stop <EVAL_POD_ID>  # stop — never remove
+# Rescore and upload both artifacts in one shot
+python scripts/rescore_math500.py \
+  --input outputs/grpo_step<N>_math500_results.json \
+  --upload
+
+# (The raw results file was already uploaded if you passed --upload to math500_eval.py)
+# If not, upload it now:
+python -c "
+from scripts.math500_eval import upload_artifact
+upload_artifact('outputs/grpo_step<N>_math500_results.json')
+"
+```
+
+Then stop the pod:
+```bash
+PATH=$HOME/.local/bin:$PATH runpodctl pod stop <EVAL_POD_ID>  # stop — never remove
 ```
 
 ### Metrics to report
 
-After eval run, execute `rescore_math500.py` on the output to get inferred pass@1 (c/n):
-```bash
-python scripts/rescore_math500.py \
-  --input outputs/grpo_math500_results.json \
-  --output outputs/grpo_math500_mv_rescored.json
-```
-
-From `outputs/grpo_math500_mv_rescored.json` → `summary`:
+From the rescored JSON on HF (`outputs/grpo_step<N>_math500_mv_rescored.json`) → `summary`:
 - `pass1_greedy` — greedy pass@1
 - `pass8` — pass@8
 - `pass1_inferred_cn` — inferred pass@1 (Chen et al. 2021 c/n estimator from pass@8 samples)
@@ -413,29 +423,19 @@ Future checkpoints follow the same pattern: `grpo_step7500_math500_results.json`
 
 Repo `heyalexchoi/qwen3-math-rlvr-results` created. Baseline artifacts uploaded ✅.
 
-After GRPO eval, upload with the HF Python API (huggingface-cli may not be in PATH):
-```python
-from huggingface_hub import HfApi
-import os, json
+Use `--upload` on both scripts — no manual upload step needed:
+```bash
+# During eval (from eval pod):
+python scripts/math500_eval.py --model heyalexchoi/qwen3-1.7b-math-grpo --latest --upload
 
-secrets = {}
-with open(os.path.expanduser('~/.config/openclaw/secrets.env')) as f:
-    for line in f:
-        if '=' in line and not line.startswith('#'):
-            k, v = line.split('=', 1)
-            secrets[k.strip()] = v.strip()
-token = secrets.get('HF_TOKEN') or secrets.get('HUGGING_FACE_HUB_TOKEN')
-api = HfApi(token=token)
-
-for fname in ['grpo_math500_results.json', 'grpo_math500_mv_rescored.json']:
-    api.upload_file(
-        path_or_fileobj=f'outputs/{fname}',
-        path_in_repo=f'outputs/{fname}',
-        repo_id='heyalexchoi/qwen3-math-rlvr-results',
-        repo_type='dataset',
-    )
-    print(f'Uploaded {fname}')
+# After eval, rescore and upload rescored artifact:
+python scripts/rescore_math500.py \
+  --input outputs/grpo_step<N>_math500_results.json \
+  --upload
 ```
+
+Both scripts read `HF_TOKEN` from env and upload to `outputs/<filename>` in the dataset repo.
+If upload was skipped (no `--upload`), re-run with `--upload` on an existing output file — rescore is idempotent.
 
 ### Training data files
 

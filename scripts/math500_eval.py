@@ -12,6 +12,7 @@ Outputs: outputs/math500_results.json
 
 import argparse
 import json
+import os
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -232,6 +233,36 @@ def compute_pass_at_k(results: list[dict], sample_key: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# HF artifact upload
+# ---------------------------------------------------------------------------
+
+HF_RESULTS_REPO = "heyalexchoi/qwen3-math-rlvr-results"
+
+
+def upload_artifact(local_path: str, repo_id: str = HF_RESULTS_REPO) -> None:
+    """Upload a local file to the HF dataset repo at outputs/<filename>."""
+    try:
+        from huggingface_hub import HfApi
+    except ImportError:
+        print("WARNING: huggingface_hub not installed — skipping upload.")
+        return
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if not token:
+        print("WARNING: HF_TOKEN not set — skipping upload.")
+        return
+    path_in_repo = f"outputs/{Path(local_path).name}"
+    print(f"Uploading {local_path} → {repo_id}/{path_in_repo} ...")
+    api = HfApi(token=token)
+    api.upload_file(
+        path_or_fileobj=local_path,
+        path_in_repo=path_in_repo,
+        repo_id=repo_id,
+        repo_type="dataset",
+    )
+    print(f"Uploaded → https://huggingface.co/datasets/{repo_id}/blob/main/{path_in_repo}")
+
+
+# ---------------------------------------------------------------------------
 # Eval methodology constants — change here when methodology changes, not at CLI
 # ---------------------------------------------------------------------------
 
@@ -243,6 +274,40 @@ TEMPERATURE = 0.7       # Qwen3 non-thinking mode recommendation
 # ---------------------------------------------------------------------------
 # Model tag derivation
 # ---------------------------------------------------------------------------
+
+def _resolve_latest_step(model: str, revision: str = None) -> int:
+    """Query HF Hub commit history and return the highest checkpoint step.
+
+    Scans commit titles for the pattern 'step N, checkpoint' (written by HF Trainer
+    hub_strategy='checkpoint'). Returns the largest N found.
+    Raises RuntimeError if no checkpoint commits are found or model is local.
+    """
+    import re
+    from pathlib import Path as _Path
+    if _Path(model).exists():
+        raise RuntimeError("--latest requires a HF Hub model ID, not a local path.")
+    try:
+        from huggingface_hub import HfApi
+    except ImportError:
+        raise RuntimeError("huggingface_hub required for --latest: pip install huggingface_hub")
+
+    # Use HF token if available — avoids rate limits on unauthenticated requests
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    api = HfApi(token=token)
+    commits = list(api.list_repo_commits(model, repo_type="model", revision=revision or "main"))
+    step_pattern = re.compile(r"\bstep\s+(\d+)[,\s].*checkpoint", re.IGNORECASE)
+    steps = []
+    for c in commits:
+        m = step_pattern.search(c.title or "")
+        if m:
+            steps.append(int(m.group(1)))
+    if not steps:
+        raise RuntimeError(
+            f"No checkpoint commits found in {model} commit history. "
+            "Titles should contain 'step N, checkpoint' (standard HF Trainer format)."
+        )
+    return max(steps)
+
 
 def _model_tag(model: str) -> str:
     """Short tag for the model used in output filenames.
@@ -288,6 +353,9 @@ def main():
                         help="Limit to N problems (debugging only).")
     parser.add_argument("--stats_only", action="store_true",
                         help="Print dataset stats and exit without running eval.")
+    parser.add_argument("--upload", action="store_true",
+                        help=f"Upload output to HF dataset repo ({HF_RESULTS_REPO}) after writing. "
+                             "Requires HF_TOKEN env var.")
     args = parser.parse_args()
 
     if args.latest and args.checkpoint_step:
@@ -433,6 +501,9 @@ def main():
     with open(output_path, "w") as f:
         json.dump(output, f, indent=2)
     print(f"\nResults saved to {output_path}")
+
+    if args.upload:
+        upload_artifact(output_path)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,8 @@ Demonstrating distillation + RLVR on math reasoning with Qwen3-1.7B-Base.
 [2] Generate Qwen3-32B traces                          ✅  7,154 correct traces (95.51%)
 [3] SFT on correct traces                              ✅  (degenerate — see Key Findings)
 [3a] SFT eval — MATH-500                               ✅  ~0% — both checkpoints degenerate
-[4] GRPO from base model                               ⏳  target ~85-90%
+[4] GRPO from base model                               🔄 RUNNING (step ~3000+/7500, wandb ckz7jwil)
+[4a] GRPO eval — checkpoint-3000                       ✅  44.20% greedy / 71.40% pass@8 / 36.83% inferred
 [5] Final eval — base vs GRPO                          ⏳
 ```
 
@@ -29,7 +30,8 @@ Demonstrating distillation + RLVR on math reasoning with Qwen3-1.7B-Base.
 |-------|----------------|--------|-------|
 | Base | **24.55%** (inferred c/n) / 35.8% (greedy) ✅ | **65.0%** ✅ | math-verify; `outputs/baseline_math500_mv_rescored.json` |
 | Post-SFT | ~0% | — | Degenerate — both 1-epoch and 3-epoch checkpoints (see Key Findings) |
-| Post-GRPO | ~85–90% | — | Target — GRPO from base, skipping SFT |
+| GRPO step-3000 (40% of training) | **36.83%** (inferred c/n) / **44.20%** (greedy) ✅ | **71.40%** ✅ | math-verify; `outputs/grpo_step3000_math500_mv_rescored.json` (+12.3pp inferred vs base) |
+| Post-GRPO (target) | ~85–90% | — | Training in progress — step 3000/7500 as of 2026-04-11 |
 
 ### Baseline by level (math-verify)
 
@@ -94,15 +96,16 @@ We run `n_samples=8` at this temperature and compute:
 **To reproduce the baseline numbers from scratch:**
 ```bash
 # Step 1: generate (requires GPU, ~30 min on A40/L40S)
+# Note: methodology locked as constants in script (MAX_NEW_TOKENS=2048, N_SAMPLES=8, TEMPERATURE=0.7)
+# Output auto-named: outputs/base_step0_math500_results.json (or pass --checkpoint_step 0)
 python scripts/math500_eval.py \
   --model Qwen/Qwen3-1.7B-Base \
-  --max_new_tokens 1024 \
-  --n_samples 8 \
-  --temperature 0.7 \
-  --output outputs/math500_results.json
+  --checkpoint_step 0
 
 # Step 2: score with math-verify (CPU, ~1 min)
-python scripts/rescore_math500.py
+# Output auto-named: outputs/base_step0_math500_mv_rescored.json
+python scripts/rescore_math500.py \
+  --input outputs/base_step0_math500_results.json
 ```
 
 #### Generation parameters
@@ -125,26 +128,20 @@ Note: `temperature=0.7` is the default in `math500_eval.py` and matches what `ma
 
 | File | Script | HF artifact | Contents |
 |------|--------|-------------|----------|
-| `outputs/math500_results.json` | `math500_eval.py` | `outputs/math500_results.json` | 500 problems × (1 greedy + 8 sampling responses), regex-scored inline |
-| `outputs/baseline_math500_mv_rescored.json` | `rescore_math500.py` | `outputs/baseline_math500_mv_rescored.json` | Same responses re-scored with math-verify — authoritative baseline numbers |
-| `outputs/grpo_math500_results.json` | `math500_eval.py` | `outputs/grpo_math500_results.json` | GRPO checkpoint eval — to be uploaded after eval run |
-| `outputs/grpo_math500_mv_rescored.json` | `rescore_math500.py` | `outputs/grpo_math500_mv_rescored.json` | GRPO checkpoint re-scored — to be uploaded after eval run |
+| `outputs/math500_results.json` | `math500_eval.py` | `outputs/math500_results.json` | 500 problems × (1 greedy + 8 sampling responses), baseline, Qwen3-1.7B-Base |
+| `outputs/baseline_math500_mv_rescored.json` | `rescore_math500.py` | `outputs/baseline_math500_mv_rescored.json` | Same responses re-scored with math-verify — authoritative baseline: 35.8% / 65.0% / 24.55% |
+| `outputs/grpo_step3000_math500_results.json` | `math500_eval.py` | ✅ On HF | GRPO checkpoint-3000 (epoch 0.40) — 500 problems × (greedy + 8 samples) |
+| `outputs/grpo_step3000_math500_mv_rescored.json` | `rescore_math500.py` | ✅ On HF | Step-3000 rescored: 44.20% greedy / 71.40% pass@8 / 36.83% inferred |
 | `outputs/baseline_results.json` | `baseline_eval.py` | — | GSM8K baseline (separate dataset) — not MATH-500 |
 
 Response text in `math500_results.json` and `baseline_math500_mv_rescored.json` is byte-identical. The rescored file updates the `correct` flag on every sample and adds `pass1_mv`/`pass8_mv` per-sample boolean arrays and a `summary` block with final numbers.
 
-**To upload artifacts to HF:**
+**Artifacts upload directly from the eval pod** — no rsync needed. Pass `--upload` to both scripts:
 ```bash
-huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
-  outputs/math500_results.json outputs/math500_results.json
-huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
-  outputs/baseline_math500_mv_rescored.json outputs/baseline_math500_mv_rescored.json
-# After GRPO eval:
-huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
-  outputs/grpo_math500_results.json outputs/grpo_math500_results.json
-huggingface-cli upload heyalexchoi/qwen3-math-rlvr-results \
-  outputs/grpo_math500_mv_rescored.json outputs/grpo_math500_mv_rescored.json
+python scripts/math500_eval.py --model heyalexchoi/qwen3-1.7b-math-grpo --latest --upload
+python scripts/rescore_math500.py --input outputs/grpo_step<N>_math500_results.json --upload
 ```
+Both scripts read `HF_TOKEN` from env and push to `outputs/<filename>` in `heyalexchoi/qwen3-math-rlvr-results`.
 
 #### Authoritative baseline numbers (from `rescore_math500.py`)
 
@@ -287,7 +284,7 @@ See `PLAN.md` → Key Findings for full details.
 | `rerun_truncated.py` | ✅ Done | 244 truncated reruns; 160 newly correct |
 | `sft_train.py` | ✅ Done | SFT on 7,154 correct MATH traces |
 | `sft_eval.py` | ✅ Done | SFT/chat-template eval — vLLM + math-verify. Used for SFT checkpoints (both degenerate ~0%). Not for base/GRPO models (chat template format mismatch) |
-| `grpo_train.py` | ⏳ Ready | GRPO from base model; see `PLAN.md` |
+| `grpo_train.py` | 🔄 Running | GRPO from base model — step 3000+/7500, wandb ckz7jwil; see `PLAN.md` |
 | `eval_comparison.py` | ⏳ Pending | See `PLAN.md` |
 
 ---
@@ -323,13 +320,20 @@ Runs both greedy pass@1 and pass@8 sampling in one invocation. Uses **math-verif
 ```bash
 # On eval pod (A40 or L40S 48GB) — checkpoint downloads directly from HF, no local copy needed
 cd /workspace/qwen3-math-rlvr
+
+# Eval latest checkpoint (queries HF commit history, auto-names output grpo_step<N>_math500_results.json)
 python scripts/math500_eval.py \
   --model heyalexchoi/qwen3-1.7b-math-grpo \
-  --max_new_tokens 2048 \
-  --n_samples 8 \
-  --temperature 0.7 \
-  --output outputs/grpo_math500_results.json
+  --latest
+
+# Or eval a specific step
+python scripts/math500_eval.py \
+  --model heyalexchoi/qwen3-1.7b-math-grpo \
+  --checkpoint_step 3000
 ```
+
+Methodology is locked in script constants (`MAX_NEW_TOKENS=2048`, `N_SAMPLES=8`, `TEMPERATURE=0.7`) — not CLI args.
+Output auto-named: `outputs/{model_tag}_step{N}_math500_results.json`. Script errors loudly if step cannot be determined.
 
 Estimated runtime: ~10-15 min on L40S (1.7B model, 2k token limit, HF backend). vLLM is not needed — GRPO model outputs ~150-250 tokens (not the 8k thinking-mode chains that made HF slow for SFT eval).
 

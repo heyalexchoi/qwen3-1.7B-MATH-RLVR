@@ -23,6 +23,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -33,6 +34,32 @@ except ImportError:
     print("ERROR: math-verify not installed.")
     print("Run: pip install 'math-verify[antlr4_13_2]'")
     sys.exit(1)
+
+
+HF_RESULTS_REPO = "heyalexchoi/qwen3-math-rlvr-results"
+
+
+def upload_artifact(local_path: str, repo_id: str = HF_RESULTS_REPO) -> None:
+    """Upload a local file to the HF dataset repo at outputs/<filename>."""
+    try:
+        from huggingface_hub import HfApi
+    except ImportError:
+        print("WARNING: huggingface_hub not installed — skipping upload.")
+        return
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if not token:
+        print("WARNING: HF_TOKEN not set — skipping upload.")
+        return
+    path_in_repo = f"outputs/{Path(local_path).name}"
+    print(f"Uploading {local_path} → {repo_id}/{path_in_repo} ...")
+    api = HfApi(token=token)
+    api.upload_file(
+        path_or_fileobj=local_path,
+        path_in_repo=path_in_repo,
+        repo_id=repo_id,
+        repo_type="dataset",
+    )
+    print(f"Uploaded → https://huggingface.co/datasets/{repo_id}/blob/main/{path_in_repo}")
 
 
 def mv_correct(predicted: str, expected: str) -> bool:
@@ -72,6 +99,12 @@ def main():
         default=None,
         help="Path to write rescored output. Auto-derived from --input if not set "
              "(replaces '_results' with '_mv_rescored').",
+    )
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help=f"Upload rescored output to HF dataset repo ({HF_RESULTS_REPO}) after writing. "
+             "Requires HF_TOKEN env var.",
     )
     args = parser.parse_args()
 
@@ -198,6 +231,9 @@ def main():
     with open(output_path, "w") as f:
         json.dump(output_data, f, indent=2)
     print(f"\nRescored output → {output_path}")
+
+    if args.upload:
+        upload_artifact(str(output_path))
 
 
 if __name__ == "__main__":
