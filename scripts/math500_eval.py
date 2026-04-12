@@ -229,21 +229,66 @@ def compute_pass_at_k(results: list[dict], sample_key: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Eval methodology constants — change here when methodology changes, not at CLI
+# ---------------------------------------------------------------------------
+
+MAX_NEW_TOKENS = 2048   # sufficient for GRPO/base completions (p99 << 2048)
+N_SAMPLES = 8           # pass@8
+TEMPERATURE = 0.7       # Qwen3 non-thinking mode recommendation
+
+
+# ---------------------------------------------------------------------------
+# Model tag derivation
+# ---------------------------------------------------------------------------
+
+def _model_tag(model: str) -> str:
+    """Short tag for the model used in output filenames.
+
+    heyalexchoi/qwen3-1.7b-math-grpo  →  grpo
+    heyalexchoi/qwen3-1.7b-math-sft   →  sft
+    Qwen/Qwen3-1.7B-Base              →  base
+    anything else                      →  <repo-name>
+    """
+    name = model.split("/")[-1].lower()
+    if "grpo" in name:
+        return "grpo"
+    if "sft" in name:
+        return "sft"
+    if "base" in name:
+        return "base"
+    return name
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="MATH-500 pass@1 and pass@8 eval")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen3-1.7B-Base")
-    parser.add_argument("--output", type=str, default="outputs/math500_results.json")
-    parser.add_argument("--max_samples", type=int, default=None, help="Limit problems (for debugging)")
-    parser.add_argument("--max_new_tokens", type=int, default=1024)
-    parser.add_argument("--n_samples", type=int, default=8, help="Samples per problem for pass@k")
-    parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature for pass@k")
-    parser.add_argument("--stats_only", action="store_true", help="Just print dataset stats and exit")
+    parser = argparse.ArgumentParser(
+        description="MATH-500 pass@1 (greedy) and pass@8 eval.\n\n"
+                    f"Methodology locked: max_new_tokens={MAX_NEW_TOKENS}, "
+                    f"n_samples={N_SAMPLES}, temperature={TEMPERATURE}.\n"
+                    "Change constants in the script when methodology changes."
+    )
+    parser.add_argument("--model", type=str, default="heyalexchoi/qwen3-1.7b-math-grpo",
+                        help="HF Hub model ID or local path.")
+    parser.add_argument("--checkpoint_step", type=int, required=True,
+                        help="Optimizer step of the checkpoint being evaluated "
+                             "(e.g. 3000, 7500). Used in the output filename and metadata.")
+    parser.add_argument("--revision", type=str, default=None,
+                        help="HF Hub git revision (branch, tag, or commit hash). "
+                             "Default: main. Use to pin a specific HF commit for reproducibility.")
+    parser.add_argument("--max_samples", type=int, default=None,
+                        help="Limit to N problems (debugging only).")
+    parser.add_argument("--stats_only", action="store_true",
+                        help="Print dataset stats and exit without running eval.")
     args = parser.parse_args()
 
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    tag = _model_tag(args.model)
+    output_path = f"outputs/{tag}_step{args.checkpoint_step}_math500_results.json"
+    print(f"Output path: {output_path}")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     # -----------------------------------------------------------------------
     # Step 1: Load dataset and report stats
@@ -276,20 +321,27 @@ def main():
     # Step 2+3: Load model and run eval
     # -----------------------------------------------------------------------
     print(f"Evaluator: {'math-verify (ANTLR4/SymPy)' if MATH_VERIFY_AVAILABLE else 'regex fallback — install math-verify[antlr4_13_2] for authoritative scoring'}")
-    print(f"Loading model: {args.model}")
-    tokenizer = load_tokenizer_safe(args.model)
+    revision_str = args.revision or "main"
+    print(f"Loading model: {args.model} (revision={revision_str})")
+    tokenizer = load_tokenizer_safe(args.model, revision=args.revision)
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
+        revision=args.revision,
         dtype=torch.bfloat16,
         device_map="auto",
     )
     model.eval()
 
+    # Capture actual HF commit hash for provenance (None for local models)
+    hf_commit_hash = getattr(model.config, "_commit_hash", None)
+    print(f"HF commit hash: {hf_commit_hash or 'N/A (local model)'}")
+
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     results = []
-    print(f"Running eval: pass@1 (greedy) + pass@{args.n_samples} (temp={args.temperature})...")
+    print(f"Running eval: pass@1 (greedy) + pass@{N_SAMPLES} (temp={TEMPERATURE}) "
+          f"max_new_tokens={MAX_NEW_TOKENS}...")
 
     for ex in tqdm(ds):
         problem = ex["problem"]
@@ -300,13 +352,13 @@ def main():
 
         # pass@1: greedy
         resp1 = generate_samples(model, tokenizer, prompt, n=1, temperature=0.0,
-                                  max_new_tokens=args.max_new_tokens)[0]
+                                  max_new_tokens=MAX_NEW_TOKENS)[0]
         pred1 = extract_boxed(resp1)
         pass1_samples = [{"response": resp1, "predicted": pred1, "correct": answers_match(pred1, expected)}]
 
         # pass@8: sampling
-        resps8 = generate_samples(model, tokenizer, prompt, n=args.n_samples,
-                                   temperature=args.temperature, max_new_tokens=args.max_new_tokens)
+        resps8 = generate_samples(model, tokenizer, prompt, n=N_SAMPLES,
+                                   temperature=TEMPERATURE, max_new_tokens=MAX_NEW_TOKENS)
         pass8_samples = []
         for resp in resps8:
             pred = extract_boxed(resp)
@@ -329,7 +381,7 @@ def main():
 
     print("\n=== RESULTS ===")
     print(f"Pass@1 (greedy): {pass1_stats['overall']:.2%}")
-    print(f"Pass@8 (temp={args.temperature}): {pass8_stats['overall']:.2%}")
+    print(f"Pass@8 (temp={TEMPERATURE}): {pass8_stats['overall']:.2%}")
     print("\nBy level:")
     for lvl in sorted(pass1_stats["per_level"].keys(), key=int):
         p1 = pass1_stats["per_level"][lvl]["pass_at_k"]
@@ -343,12 +395,16 @@ def main():
         n = pass1_stats["per_subject"][subj]["total"]
         print(f"  {subj:<30s} (n={n:3d}): pass@1={p1:.2%}  pass@8={p8:.2%}")
 
-    # Save
+    # Save — full provenance in metadata
     output = {
         "model": args.model,
+        "hf_revision": revision_str,
+        "hf_commit_hash": hf_commit_hash,
+        "checkpoint_step": args.checkpoint_step,
         "evaluator": "math-verify" if MATH_VERIFY_AVAILABLE else "regex-fallback",
-        "n_samples_pass8": args.n_samples,
-        "temperature_pass8": args.temperature,
+        "max_new_tokens": MAX_NEW_TOKENS,
+        "n_samples_pass8": N_SAMPLES,
+        "temperature_pass8": TEMPERATURE,
         "dataset_stats": {
             "total": len(ds),
             "by_level": {str(k): v for k, v in sorted(level_counts.items())},
@@ -359,9 +415,9 @@ def main():
         "results": results,
     }
 
-    with open(args.output, "w") as f:
+    with open(output_path, "w") as f:
         json.dump(output, f, indent=2)
-    print(f"\nResults saved to {args.output}")
+    print(f"\nResults saved to {output_path}")
 
 
 if __name__ == "__main__":

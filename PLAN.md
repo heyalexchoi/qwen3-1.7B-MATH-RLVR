@@ -9,7 +9,9 @@ For session history and decisions, see `memory/math-rlvr.md`.
 
 ## Current Run
 
-**Phase:** GRPO training from base model — 🔄 RUNNING (PID 3235, started 2026-04-11 01:19 UTC)
+**Phase:** GRPO training from base model — 🔄 RUNNING (PID 3235, started 2026-04-11 01:19 UTC, ~40% complete at step 3000/7500 as of 13:25 UTC)
+
+**Eval pod running in parallel:** `qzwfoxy4bfc4fd` (L40S, $0.86/hr) — eval PID 704, started 13:41 UTC, ~70 min ETA. Training pod NOT stopped per user request.
 
 ### SFT eval outcome (completed 2026-04-10)
 
@@ -149,8 +151,15 @@ See README → "GRPO from base: approach and parameters" for full parameter just
 Pod `gol7yudqrlfn48` — GRPO training running, started 2026-04-11.
 - **H100 SXM 80GB, $2.99/hr** — `root@64.247.201.44 -p 17495`
 - torch 2.6.0 (upgraded from 2.4.1), TRL 1.0.0, math-verify installed
-- **~937 steps, ~2 hours** at 8s/step
+- **~7500 optimizer steps = 1 epoch** (actual, not 937 — see explanation below)
 - wandb: https://wandb.ai/heyalexchoi/qwen3-math-rlvr/runs/ckz7jwil
+- checkpoint-3000 saved at 13:15 UTC (epoch 0.40); pushed to HF Hub
+
+**Training time clarification:** Each optimizer step = 1 prompt × 8 completions = 8 micro-steps of compute_loss. With 7,500 training examples and no micro-batching beyond grad_accum=8, each dataloader example = 1 optimizer step → 7,500 steps/epoch (not 937). Actual step time: 8-24s/step (varies by completion length). Full epoch ~30-40+ hours.
+
+Eval pod `qzwfoxy4bfc4fd` — eval COMPLETE, pod stopped.
+- Results: greedy 44.20% / pass@8 71.40% / inferred 36.83% (checkpoint-3000, epoch 0.40)
+- Outputs rsynced to local + rescored: `outputs/grpo_math500_results.json`, `outputs/grpo_math500_mv_rescored.json`
 
 ### Output files (on pod)
 
@@ -160,9 +169,9 @@ Pod `gol7yudqrlfn48` — GRPO training running, started 2026-04-11.
 
 ### On completion
 
-1. Rsync GRPO checkpoint to local (see `docs/runpod.md` → Rsync Outputs)
+1. Verify HF has the latest checkpoint: check `heyalexchoi/qwen3-1.7b-math-grpo` commit history for final step
 2. Stop training pod: `PATH=$HOME/.local/bin:$PATH runpodctl pod stop gol7yudqrlfn48` — **STOP only, never remove**
-3. Eval GRPO checkpoint on a separate eval pod (see step [4a] below)
+3. Eval GRPO checkpoint on a separate eval pod — download directly from HF (see step [4a] below)
 4. Update pipeline step [4] and [4a] with results
 
 ---
@@ -217,18 +226,16 @@ runpodctl pod create \
   -o json
 
 # 2. Install deps (no torch upgrade needed — inference only, no TRL FSDPModule)
-ssh ... "cd /workspace/qwen3-math-rlvr && pip install transformers datasets torch tqdm math-verify[antlr4_13_2] -q"
+ssh ... "pip install transformers datasets torch tqdm 'math-verify[antlr4_13_2]' huggingface_hub -q"
 
-# 3. Rsync GRPO checkpoint + scripts to eval pod
+# 3. Rsync scripts to eval pod (no checkpoint — it comes from HF)
 rsync -av -e "ssh -i ~/.runpod/ssh/RunPod-Key-Go -p <PORT> -o StrictHostKeyChecking=no" \
   /home/dev/.openclaw/workspace/qwen3-math-rlvr/ \
   root@<IP>:/workspace/qwen3-math-rlvr/ \
-  --exclude='outputs/sft_*' --exclude='__pycache__/' --exclude='.git/'
+  --exclude='outputs/' --exclude='__pycache__/' --exclude='.git/'
 
-# 4. Copy GRPO checkpoint (if not already rsynced)
-rsync -av -e "ssh -i ~/.runpod/ssh/RunPod-Key-Go -p <PORT> -o StrictHostKeyChecking=no" \
-  /home/dev/.openclaw/workspace/qwen3-math-rlvr/outputs/grpo_checkpoint/ \
-  root@<IP>:/workspace/qwen3-math-rlvr/outputs/grpo_checkpoint/
+# 4. Log in to HF on eval pod (checkpoint downloads directly from HF — no local copy needed)
+ssh ... "huggingface-cli login --token <HF_TOKEN>"
 ```
 
 ### Launch eval
@@ -236,8 +243,9 @@ rsync -av -e "ssh -i ~/.runpod/ssh/RunPod-Key-Go -p <PORT> -o StrictHostKeyCheck
 ```bash
 ssh ... << 'EOF'
 cd /workspace/qwen3-math-rlvr
+mkdir -p logs outputs
 nohup python scripts/math500_eval.py \
-  --model outputs/grpo_checkpoint \
+  --model heyalexchoi/qwen3-1.7b-math-grpo \
   --max_new_tokens 2048 \
   --n_samples 8 \
   --temperature 0.7 \
@@ -246,6 +254,8 @@ nohup python scripts/math500_eval.py \
 echo "PID: $!"
 EOF
 ```
+
+To eval a specific checkpoint step (e.g., step 3000), pass `--revision <commit_hash>` — see HF commit history for hash.
 
 Runtime estimate: 500 problems × 8 samples × ~1s/sample on A40 ≈ ~70 min. Monitor via `tail -f logs/grpo_eval.log`.
 
@@ -304,9 +314,11 @@ Target trajectory: base 24.55% (inferred c/n, sampling) → GRPO ~85-90% MATH-50
       ↓
 [3a] SFT eval — MATH-500 (sft_eval.py)                        ✅ ~0% — both checkpoints degenerate (capacity, not training bug)
       ↓
-[4] GRPO from base model (grpo_train.py)                      🔄 RUNNING — PID 3235, wandb ckz7jwil, ~2hr ETA
-      ↓
-[4a] GRPO eval — MATH-500 (sft_eval.py --model grpo_checkpoint) ⏳ pending  target ~85-90%
+[4] GRPO from base model (grpo_train.py)                      🔄 RUNNING — PID 3235, wandb ckz7jwil, step 3000/7500 (~40%), ~30-40hr total
+      ↓ (eval running in parallel on checkpoint-3000)
+[4a] GRPO eval — MATH-500 (math500_eval.py --model grpo_checkpoint) ✅ DONE — checkpoint-3000 (epoch 0.40)
+         greedy pass@1=44.20% / pass@8=71.40% / inferred pass@1=36.83%
+         baseline: greedy 35.80% / pass@8 65.00% / inferred 24.55%  → +8.4pp greedy, +6.4pp pass@8, +12.3pp inferred
       ↓
 [5] Comparison table (eval_comparison.py)                          ⏳ pending  base vs GRPO (no SFT — degenerate)
 ```
@@ -379,14 +391,24 @@ Scripts live in `scripts/`. No numeric prefixes — names are descriptive.
 
 All eval outputs live in `outputs/` (gitignored). Durable copies are uploaded to HF dataset repo: [`heyalexchoi/qwen3-math-rlvr-results`](https://huggingface.co/datasets/heyalexchoi/qwen3-math-rlvr-results).
 
+### Artifact naming convention
+
+Every eval artifact is tied to a specific checkpoint: `{model}_{step|epoch}_math500_{type}.json`
+- `model`: `grpo` (or `sft`, `base`)
+- `step`: optimizer step number (e.g., `step3000`)
+- `type`: `results` (raw responses from `math500_eval.py`) or `mv_rescored` (math-verify scores from `rescore_math500.py`)
+- JSON metadata includes: `hf_model_id`, `checkpoint_step`, `checkpoint_epoch`, `training_run_wandb`, `max_new_tokens`, `eval_script`
+
+Future checkpoints follow the same pattern: `grpo_step7500_math500_results.json`, etc.
+
 ### Eval output files
 
 | File | Script | Status | Description |
 |------|--------|--------|-------------|
 | `outputs/math500_results.json` | `math500_eval.py` | ✅ On HF | 500 problems × (1 greedy + 8 sampling responses), baseline, Qwen3-1.7B-Base |
 | `outputs/baseline_math500_mv_rescored.json` | `rescore_math500.py` | ✅ On HF | Baseline re-scored with math-verify: 35.80% / 65.00% / 24.55% |
-| `outputs/grpo_math500_results.json` | `math500_eval.py` | ⏳ Pending eval run | GRPO checkpoint responses |
-| `outputs/grpo_math500_mv_rescored.json` | `rescore_math500.py` | ⏳ Pending eval run | GRPO checkpoint re-scored with math-verify |
+| `outputs/grpo_step3000_math500_results.json` | `math500_eval.py` (max_new_tokens=2048, n=8, temp=0.7) | ✅ On HF | step 3000 / epoch 0.40 / wandb ckz7jwil — 500 problems × (greedy + 8 samples) |
+| `outputs/grpo_step3000_math500_mv_rescored.json` | `rescore_math500.py` | ✅ On HF | step 3000 rescored: greedy 44.20% / pass@8 71.40% / inferred 36.83% |
 
 ### HF artifact upload
 

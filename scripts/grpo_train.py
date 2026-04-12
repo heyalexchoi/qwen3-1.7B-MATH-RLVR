@@ -19,11 +19,13 @@ import logging
 import os
 import re
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import torch
+import wandb
 import yaml
 from contextlib import nullcontext
 from datasets import Dataset
@@ -113,6 +115,31 @@ def extract_boxed(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Parallel reward evaluation
+# ---------------------------------------------------------------------------
+
+_reward_pool: ProcessPoolExecutor | None = None
+
+
+def _get_reward_pool() -> ProcessPoolExecutor:
+    global _reward_pool
+    if _reward_pool is None:
+        # Uses fork (Linux default) — workers inherit already-imported modules
+        # (torch, transformers, math_verify) without re-importing them, giving fast
+        # pool initialization. Workers do pure CPU work (ANTLR4/SymPy) and never
+        # call CUDA ops, so the inherited CUDA context is harmless.
+        _reward_pool = ProcessPoolExecutor(max_workers=8)
+    return _reward_pool
+
+
+def _eval_pair(args: tuple) -> float:
+    """Evaluate one (predicted, expected) pair in a worker process.
+    Top-level function required for pickling by ProcessPoolExecutor."""
+    predicted, expected = args
+    return 1.0 if _mv_correct(predicted, expected) else 0.0
+
+
+# ---------------------------------------------------------------------------
 # Reward functions
 # ---------------------------------------------------------------------------
 
@@ -127,8 +154,12 @@ def correctness_reward(completions: list[str], answer: list[str], **kwargs) -> l
     set in GenerationConfig. Instead we truncate here: if the model continues the
     few-shot pattern (writes "\\n\\nProblem: ..."), we'd otherwise extract the last
     \\boxed{} from the fabricated problem, not the real answer.
+
+    Answer extraction runs in the main process; only _mv_correct (ANTLR4+SymPy,
+    which holds the GIL) is dispatched to a persistent ProcessPoolExecutor so all
+    8 calls run in parallel rather than serially.
     """
-    rewards = []
+    pairs = []
     for completion, expected in zip(completions, answer):
         truncated = completion
         for stop in STOP_STRINGS:
@@ -136,9 +167,9 @@ def correctness_reward(completions: list[str], answer: list[str], **kwargs) -> l
             if idx != -1:
                 truncated = truncated[:idx]
         predicted = extract_boxed(truncated)
-        is_correct = _mv_correct(predicted, expected)
-        rewards.append(1.0 if is_correct else 0.0)
-    return rewards
+        pairs.append((predicted, expected))
+    pool = _get_reward_pool()
+    return list(pool.map(_eval_pair, pairs))
 
 
 # ---------------------------------------------------------------------------
@@ -525,6 +556,14 @@ def main():
     logger.info(f"  push_to_hub:            {args.push_to_hub}")
     if args.push_to_hub:
         logger.info(f"  hub_repo_id:            {args.hub_repo_id}")
+
+    # Pre-initialize wandb before TRL so GPU system metrics are captured.
+    # TRL reuses an existing wandb run rather than creating a new one.
+    wandb.init(
+        project=os.environ.get("WANDB_PROJECT", "qwen3-math-rlvr"),
+        name=grpo_config.run_name,
+        settings=wandb.Settings(_stats_sampling_interval=10),
+    )
 
     # Trainer
     trainer = SkipZeroAdvantageGRPOTrainer(

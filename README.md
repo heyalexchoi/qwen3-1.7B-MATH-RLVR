@@ -321,10 +321,10 @@ Use `math500_eval.py` for GRPO checkpoint eval. **Not** `sft_eval.py` and **not*
 Runs both greedy pass@1 and pass@8 sampling in one invocation. Uses **math-verify** (ANTLR4/SymPy) when installed, regex fallback otherwise.
 
 ```bash
-# On eval pod (A40 or L40S 48GB)
+# On eval pod (A40 or L40S 48GB) — checkpoint downloads directly from HF, no local copy needed
 cd /workspace/qwen3-math-rlvr
 python scripts/math500_eval.py \
-  --model outputs/grpo_checkpoint \
+  --model heyalexchoi/qwen3-1.7b-math-grpo \
   --max_new_tokens 2048 \
   --n_samples 8 \
   --temperature 0.7 \

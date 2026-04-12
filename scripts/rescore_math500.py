@@ -69,12 +69,18 @@ def main():
     )
     parser.add_argument(
         "--output",
-        default="outputs/baseline_math500_mv_rescored.json",
-        help="Path to write rescored output",
+        default=None,
+        help="Path to write rescored output. Auto-derived from --input if not set "
+             "(replaces '_results' with '_mv_rescored').",
     )
     args = parser.parse_args()
 
     input_path = Path(args.input)
+    # Auto-derive output: grpo_step3000_math500_results.json -> grpo_step3000_math500_mv_rescored.json
+    if args.output is None:
+        args.output = str(input_path).replace("_results.json", "_mv_rescored.json")
+        if args.output == str(input_path):  # no substitution happened
+            args.output = str(input_path).replace(".json", "_mv_rescored.json")
     output_path = Path(args.output)
 
     if not input_path.exists():
