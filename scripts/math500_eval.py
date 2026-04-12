@@ -22,7 +22,7 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-def load_tokenizer_safe(model_path: str):
+def load_tokenizer_safe(model_path: str, revision: str = None):
     """Load tokenizer with Qwen3 extra_special_tokens bug workaround.
 
     Some Qwen3 checkpoints (SFT/instruct, and potentially GRPO outputs) save
@@ -30,14 +30,17 @@ def load_tokenizer_safe(model_path: str):
     expects a dict and raises AttributeError: 'list' object has no attribute 'keys'.
     Qwen3-1.7B-Base is unaffected (field is None). This is a no-op for base model.
     """
+    kwargs = {}
+    if revision:
+        kwargs["revision"] = revision
     try:
-        return AutoTokenizer.from_pretrained(model_path)
+        return AutoTokenizer.from_pretrained(model_path, **kwargs)
     except (AttributeError, TypeError) as e:
         if "extra_special_tokens" not in str(e) and "keys" not in str(e):
             raise
         # Patch the cached tokenizer_config.json and retry
         from transformers.utils import cached_file
-        config_file = cached_file(model_path, "tokenizer_config.json")
+        config_file = cached_file(model_path, "tokenizer_config.json", **kwargs)
         with open(config_file) as f:
             config = json.load(f)
         if isinstance(config.get("extra_special_tokens"), list):
@@ -45,7 +48,7 @@ def load_tokenizer_safe(model_path: str):
             with open(config_file, "w") as f:
                 json.dump(config, f, indent=2)
             print(f"Patched tokenizer_config.json: extra_special_tokens list → {{}}")
-        return AutoTokenizer.from_pretrained(model_path)
+        return AutoTokenizer.from_pretrained(model_path, **kwargs)
 
 # ---------------------------------------------------------------------------
 # math-verify — primary evaluator (ANTLR4/SymPy), regex fallback if missing
@@ -272,9 +275,12 @@ def main():
     )
     parser.add_argument("--model", type=str, default="heyalexchoi/qwen3-1.7b-math-grpo",
                         help="HF Hub model ID or local path.")
-    parser.add_argument("--checkpoint_step", type=int, required=True,
-                        help="Optimizer step of the checkpoint being evaluated "
-                             "(e.g. 3000, 7500). Used in the output filename and metadata.")
+    parser.add_argument("--checkpoint_step", type=int, default=None,
+                        help="Optimizer step of the checkpoint (e.g. 3000, 7500). "
+                             "Required unless --latest is set.")
+    parser.add_argument("--latest", action="store_true",
+                        help="Query HF Hub for the latest checkpoint step and use it. "
+                             "Mutually exclusive with --checkpoint_step.")
     parser.add_argument("--revision", type=str, default=None,
                         help="HF Hub git revision (branch, tag, or commit hash). "
                              "Default: main. Use to pin a specific HF commit for reproducibility.")
@@ -283,6 +289,15 @@ def main():
     parser.add_argument("--stats_only", action="store_true",
                         help="Print dataset stats and exit without running eval.")
     args = parser.parse_args()
+
+    if args.latest and args.checkpoint_step:
+        parser.error("--latest and --checkpoint_step are mutually exclusive.")
+    if not args.latest and args.checkpoint_step is None:
+        parser.error("One of --checkpoint_step or --latest is required.")
+
+    if args.latest:
+        args.checkpoint_step = _resolve_latest_step(args.model, args.revision)
+        print(f"Latest checkpoint step: {args.checkpoint_step}")
 
     tag = _model_tag(args.model)
     output_path = f"outputs/{tag}_step{args.checkpoint_step}_math500_results.json"

@@ -246,16 +246,15 @@ cd /workspace/qwen3-math-rlvr
 mkdir -p logs outputs
 nohup python scripts/math500_eval.py \
   --model heyalexchoi/qwen3-1.7b-math-grpo \
-  --max_new_tokens 2048 \
-  --n_samples 8 \
-  --temperature 0.7 \
-  --output outputs/grpo_math500_results.json \
-  > logs/grpo_eval.log 2>&1 &
+  --checkpoint_step <STEP> \
+  > logs/grpo_eval_step<STEP>.log 2>&1 &
 echo "PID: $!"
 EOF
 ```
 
-To eval a specific checkpoint step (e.g., step 3000), pass `--revision <commit_hash>` — see HF commit history for hash.
+Output auto-named: `outputs/grpo_step<STEP>_math500_results.json`.
+To pin a specific HF commit: add `--revision <commit_hash>` (see HF commit history).
+Methodology locked in script constants: `MAX_NEW_TOKENS=2048`, `N_SAMPLES=8`, `TEMPERATURE=0.7`.
 
 Runtime estimate: 500 problems × 8 samples × ~1s/sample on A40 ≈ ~70 min. Monitor via `tail -f logs/grpo_eval.log`.
 
