@@ -46,13 +46,11 @@ def upload_artifact(local_path: str, repo_id: str = HF_RESULTS_REPO) -> None:
     except ImportError:
         print("WARNING: huggingface_hub not installed — skipping upload.")
         return
-    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-    if not token:
-        print("WARNING: HF_TOKEN not set — skipping upload.")
-        return
+    # Prefer explicit env var; fall back to cached token (~/.cache/huggingface/token)
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or None
     path_in_repo = f"outputs/{Path(local_path).name}"
     print(f"Uploading {local_path} → {repo_id}/{path_in_repo} ...")
-    api = HfApi(token=token)
+    api = HfApi(token=token)  # token=None → uses cached login
     api.upload_file(
         path_or_fileobj=local_path,
         path_in_repo=path_in_repo,
