@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Evaluate model on MATH-500: pass@1 (greedy) and pass@8 (sampling).
+"""Generate completions for MATH-500: pass@1 (greedy) and pass@8 (sampling).
 
 Dataset: HuggingFaceH4/MATH-500
   Fields: problem, solution, subject, level (int 1-5), answer (pre-extracted)
 
-Outputs: outputs/math500_results.json
+Outputs: outputs/{tag}_step{N}_math500_results.json
   - dataset stats (by level, by subject)
-  - pass@1 and pass@8 overall and per level
-  - full per-problem results
+  - per-problem raw generations + extracted \\boxed{} answers (no scoring)
+
+Scoring is done separately by rescore_math500.py (math-verify / ANTLR4+SymPy).
 """
 
 import argparse
 import json
 import os
-import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -52,17 +52,6 @@ def load_tokenizer_safe(model_path: str, revision: str = None):
         return AutoTokenizer.from_pretrained(model_path, **kwargs)
 
 # ---------------------------------------------------------------------------
-# math-verify — primary evaluator (ANTLR4/SymPy), regex fallback if missing
-# ---------------------------------------------------------------------------
-
-try:
-    from math_verify import parse as mv_parse, verify as mv_verify_fn
-    MATH_VERIFY_AVAILABLE = True
-except ImportError:
-    MATH_VERIFY_AVAILABLE = False
-
-
-# ---------------------------------------------------------------------------
 # Answer extraction
 # ---------------------------------------------------------------------------
 
@@ -90,42 +79,6 @@ def extract_boxed(text: str) -> str:
         else:
             result.append(ch)
     return "".join(result).strip()
-
-
-def normalize(s: str) -> str:
-    """Basic normalization for answer comparison."""
-    s = s.strip()
-    # Remove trailing .0 from integers
-    s = re.sub(r"\.0+$", "", s)
-    # Remove thousands commas
-    s = s.replace(",", "")
-    # Collapse whitespace
-    s = re.sub(r"\s+", " ", s)
-    return s
-
-
-def answers_match(predicted: str, expected: str) -> bool:
-    """Compare predicted and expected answers. Uses math-verify when available, regex fallback."""
-    if not predicted or not expected:
-        return False
-    if MATH_VERIFY_AVAILABLE:
-        try:
-            gold = mv_parse(f"${expected}$")
-            ans = mv_parse(f"${predicted}$")
-            if gold and ans:
-                return bool(mv_verify_fn(gold, ans))
-        except Exception:
-            pass
-    # Regex/numeric fallback
-    p = normalize(predicted)
-    e = normalize(expected)
-    if p == e:
-        return True
-    try:
-        return abs(float(p) - float(e)) < 1e-6
-    except (ValueError, TypeError):
-        pass
-    return p.lower() == e.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -178,58 +131,6 @@ def generate_samples(
             tokenizer=tokenizer,
         )
     return [tokenizer.decode(out[i][input_len:], skip_special_tokens=True) for i in range(n)]
-
-
-# ---------------------------------------------------------------------------
-# Scoring
-# ---------------------------------------------------------------------------
-
-def compute_pass_at_k(results: list[dict], sample_key: str) -> dict:
-    """
-    Compute pass@k where k = number of samples in sample_key.
-    A problem passes if ANY sample is correct.
-    """
-    level_correct = defaultdict(int)
-    level_total = defaultdict(int)
-    subject_correct = defaultdict(int)
-    subject_total = defaultdict(int)
-
-    for r in results:
-        level = r["level"]
-        subject = r["subject"]
-        any_correct = any(s["correct"] for s in r[sample_key])
-
-        level_total[level] += 1
-        subject_total[subject] += 1
-        if any_correct:
-            level_correct[level] += 1
-            subject_correct[subject] += 1
-
-    per_level = {}
-    for lvl in sorted(level_total.keys()):
-        per_level[str(lvl)] = {
-            "correct": level_correct[lvl],
-            "total": level_total[lvl],
-            "pass_at_k": round(level_correct[lvl] / level_total[lvl], 4),
-        }
-
-    per_subject = {}
-    for subj in sorted(subject_total.keys()):
-        per_subject[subj] = {
-            "correct": subject_correct[subj],
-            "total": subject_total[subj],
-            "pass_at_k": round(subject_correct[subj] / subject_total[subj], 4),
-        }
-
-    overall_correct = sum(level_correct.values())
-    overall_total = sum(level_total.values())
-    return {
-        "overall": round(overall_correct / overall_total, 4),
-        "overall_correct": overall_correct,
-        "overall_total": overall_total,
-        "per_level": per_level,
-        "per_subject": per_subject,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -401,9 +302,8 @@ def main():
         return
 
     # -----------------------------------------------------------------------
-    # Step 2+3: Load model and run eval
+    # Step 2+3: Load model and generate completions
     # -----------------------------------------------------------------------
-    print(f"Evaluator: {'math-verify (ANTLR4/SymPy)' if MATH_VERIFY_AVAILABLE else 'regex fallback — install math-verify[antlr4_13_2] for authoritative scoring'}")
     revision_str = args.revision or "main"
     print(f"Loading model: {args.model} (revision={revision_str})")
     tokenizer = load_tokenizer_safe(args.model, revision=args.revision)
@@ -423,7 +323,7 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
 
     results = []
-    print(f"Running eval: pass@1 (greedy) + pass@{N_SAMPLES} (temp={TEMPERATURE}) "
+    print(f"Generating: pass@1 (greedy) + pass@{N_SAMPLES} (temp={TEMPERATURE}) "
           f"max_new_tokens={MAX_NEW_TOKENS}...")
 
     for ex in tqdm(ds):
@@ -437,15 +337,12 @@ def main():
         resp1 = generate_samples(model, tokenizer, prompt, n=1, temperature=0.0,
                                   max_new_tokens=MAX_NEW_TOKENS)[0]
         pred1 = extract_boxed(resp1)
-        pass1_samples = [{"response": resp1, "predicted": pred1, "correct": answers_match(pred1, expected)}]
+        pass1_samples = [{"response": resp1, "predicted": pred1}]
 
         # pass@8: sampling
         resps8 = generate_samples(model, tokenizer, prompt, n=N_SAMPLES,
                                    temperature=TEMPERATURE, max_new_tokens=MAX_NEW_TOKENS)
-        pass8_samples = []
-        for resp in resps8:
-            pred = extract_boxed(resp)
-            pass8_samples.append({"response": resp, "predicted": pred, "correct": answers_match(pred, expected)})
+        pass8_samples = [{"response": resp, "predicted": extract_boxed(resp)} for resp in resps8]
 
         results.append({
             "problem": problem,
@@ -456,35 +353,12 @@ def main():
             "pass8": pass8_samples,
         })
 
-    # -----------------------------------------------------------------------
-    # Step 4: Score by level
-    # -----------------------------------------------------------------------
-    pass1_stats = compute_pass_at_k(results, sample_key="pass1")
-    pass8_stats = compute_pass_at_k(results, sample_key="pass8")
-
-    print("\n=== RESULTS ===")
-    print(f"Pass@1 (greedy): {pass1_stats['overall']:.2%}")
-    print(f"Pass@8 (temp={TEMPERATURE}): {pass8_stats['overall']:.2%}")
-    print("\nBy level:")
-    for lvl in sorted(pass1_stats["per_level"].keys(), key=int):
-        p1 = pass1_stats["per_level"][lvl]["pass_at_k"]
-        p8 = pass8_stats["per_level"][lvl]["pass_at_k"]
-        n = pass1_stats["per_level"][lvl]["total"]
-        print(f"  Level {lvl} (n={n:3d}): pass@1={p1:.2%}  pass@8={p8:.2%}")
-    print("\nBy subject:")
-    for subj in sorted(pass1_stats["per_subject"].keys()):
-        p1 = pass1_stats["per_subject"][subj]["pass_at_k"]
-        p8 = pass8_stats["per_subject"][subj]["pass_at_k"]
-        n = pass1_stats["per_subject"][subj]["total"]
-        print(f"  {subj:<30s} (n={n:3d}): pass@1={p1:.2%}  pass@8={p8:.2%}")
-
-    # Save — full provenance in metadata
+    # Save raw generations — scoring is done by rescore_math500.py
     output = {
         "model": args.model,
         "hf_revision": revision_str,
         "hf_commit_hash": hf_commit_hash,
         "checkpoint_step": args.checkpoint_step,
-        "evaluator": "math-verify" if MATH_VERIFY_AVAILABLE else "regex-fallback",
         "max_new_tokens": MAX_NEW_TOKENS,
         "n_samples_pass8": N_SAMPLES,
         "temperature_pass8": TEMPERATURE,
@@ -493,8 +367,6 @@ def main():
             "by_level": {str(k): v for k, v in sorted(level_counts.items())},
             "by_subject": dict(sorted(subject_counts.items())),
         },
-        "pass1": pass1_stats,
-        "pass8": pass8_stats,
         "results": results,
     }
 
