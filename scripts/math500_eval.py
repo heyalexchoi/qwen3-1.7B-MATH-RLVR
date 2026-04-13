@@ -92,45 +92,111 @@ from prompts import FEW_SHOT, create_prompt, STOP_STRINGS  # noqa: E402
 # Generation
 # ---------------------------------------------------------------------------
 
-def generate_samples(
+def generate_batch(
     model,
     tokenizer,
-    prompt: str,
-    n: int,
+    prompts: list[str],
+    n_per_prompt: int,
     temperature: float,
     max_new_tokens: int,
-) -> list[str]:
-    """Generate n completions for a prompt. Greedy if n==1 or temperature==0."""
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
-    input_len = inputs.input_ids.shape[1]
+) -> list[list[str]]:
+    """Generate n_per_prompt completions for each prompt, batched across all prompts.
 
-    if n == 1 or temperature == 0.0:
-        with torch.no_grad():
-            out = model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                pad_token_id=tokenizer.pad_token_id,
-                stop_strings=STOP_STRINGS,
-                tokenizer=tokenizer,
-            )
-        return [tokenizer.decode(out[0][input_len:], skip_special_tokens=True)]
+    Uses left-padding so all sequences in the batch share the same input length.
+    Returns results[i] = list of n_per_prompt completions for prompts[i].
 
-    # Batch n samples in one forward pass
-    input_ids = inputs.input_ids.repeat(n, 1)
-    attention_mask = inputs.attention_mask.repeat(n, 1)
+    With problem_batch_size=B and n_per_prompt=8, this sends B*8 sequences through
+    model.generate() in one call — far better GPU utilization than sequential per-problem.
+    """
+    B = len(prompts)
+    do_sample = temperature > 0.0
+
+    # Expand: [p0]*n, [p1]*n, ...  so generate() sees B*n sequences
+    expanded = [p for p in prompts for _ in range(n_per_prompt)]
+
+    old_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = "left"
+    inputs = tokenizer(
+        expanded,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=2048,
+    ).to(model.device)
+    tokenizer.padding_side = old_padding_side
+
+    padded_input_len = inputs.input_ids.shape[1]
+
+    gen_kwargs = dict(
+        max_new_tokens=max_new_tokens,
+        do_sample=do_sample,
+        pad_token_id=tokenizer.pad_token_id,
+        stop_strings=STOP_STRINGS,
+        tokenizer=tokenizer,
+    )
+    if do_sample:
+        gen_kwargs["temperature"] = temperature
+
     with torch.no_grad():
-        out = model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=temperature,
-            pad_token_id=tokenizer.pad_token_id,
-            stop_strings=STOP_STRINGS,
-            tokenizer=tokenizer,
-        )
-    return [tokenizer.decode(out[i][input_len:], skip_special_tokens=True) for i in range(n)]
+        out = model.generate(**inputs, **gen_kwargs)
+
+    responses = [
+        tokenizer.decode(out[i][padded_input_len:], skip_special_tokens=True)
+        for i in range(B * n_per_prompt)
+    ]
+    # Group back by prompt: results[i] = n_per_prompt completions for prompts[i]
+    return [responses[i * n_per_prompt:(i + 1) * n_per_prompt] for i in range(B)]
+
+
+# ---------------------------------------------------------------------------
+# vLLM backend (preferred — continuous batching, no padding waste)
+# ---------------------------------------------------------------------------
+
+def run_eval_vllm(
+    model_id: str,
+    revision: str,
+    prompts: list[str],
+) -> tuple[list[str], list[list[str]]]:
+    """Run greedy + pass@N for all prompts using vLLM.
+
+    vLLM uses PagedAttention and continuous batching — no padding overhead,
+    no batch-waits-for-slowest-sequence. Orders of magnitude faster than HF
+    for variable-length outputs with high max_new_tokens.
+
+    Returns:
+        greedy_responses: list[str], one per prompt
+        sampling_responses: list[list[str]], N_SAMPLES per prompt
+    """
+    from vllm import LLM, SamplingParams
+
+    llm = LLM(
+        model=model_id,
+        revision=revision or "main",
+        dtype="bfloat16",
+        trust_remote_code=True,
+    )
+
+    greedy_params = SamplingParams(
+        temperature=0,
+        max_tokens=MAX_NEW_TOKENS,
+        stop=list(STOP_STRINGS),
+    )
+    sampling_params = SamplingParams(
+        n=N_SAMPLES,
+        temperature=TEMPERATURE,
+        max_tokens=MAX_NEW_TOKENS,
+        stop=list(STOP_STRINGS),
+    )
+
+    print(f"vLLM greedy: {len(prompts)} prompts...")
+    greedy_outputs = llm.generate(prompts, greedy_params)
+    greedy_responses = [o.outputs[0].text for o in greedy_outputs]
+
+    print(f"vLLM sampling (n={N_SAMPLES}): {len(prompts)} prompts × {N_SAMPLES} samples...")
+    sampling_outputs = llm.generate(prompts, sampling_params)
+    sampling_responses = [[out.text for out in o.outputs] for o in sampling_outputs]
+
+    return greedy_responses, sampling_responses
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +240,26 @@ TEMPERATURE = 0.7       # Qwen3 non-thinking mode recommendation
 # Model tag derivation
 # ---------------------------------------------------------------------------
 
+def _list_checkpoint_commits(model: str, revision: str = None):
+    """Return list of (step, commit_id) for all checkpoint commits, sorted by step."""
+    import re
+    try:
+        from huggingface_hub import HfApi
+    except ImportError:
+        raise RuntimeError("huggingface_hub required: pip install huggingface_hub")
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    api = HfApi(token=token)
+    commits = list(api.list_repo_commits(model, repo_type="model", revision=revision or "main"))
+    # Match "step N, checkpoint" (standard HF Trainer hub_strategy='checkpoint' format)
+    step_pattern = re.compile(r"\bstep\s+(\d+)[,\s].*checkpoint", re.IGNORECASE)
+    results = []
+    for c in commits:
+        m = step_pattern.search(c.title or "")
+        if m:
+            results.append((int(m.group(1)), c.commit_id))
+    return sorted(results)
+
+
 def _resolve_latest_step(model: str, revision: str = None) -> int:
     """Query HF Hub commit history and return the highest checkpoint step.
 
@@ -181,31 +267,36 @@ def _resolve_latest_step(model: str, revision: str = None) -> int:
     hub_strategy='checkpoint'). Returns the largest N found.
     Raises RuntimeError if no checkpoint commits are found or model is local.
     """
-    import re
     from pathlib import Path as _Path
     if _Path(model).exists():
         raise RuntimeError("--latest requires a HF Hub model ID, not a local path.")
-    try:
-        from huggingface_hub import HfApi
-    except ImportError:
-        raise RuntimeError("huggingface_hub required for --latest: pip install huggingface_hub")
-
-    # Use HF token if available — avoids rate limits on unauthenticated requests
-    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-    api = HfApi(token=token)
-    commits = list(api.list_repo_commits(model, repo_type="model", revision=revision or "main"))
-    step_pattern = re.compile(r"\bstep\s+(\d+)[,\s].*checkpoint", re.IGNORECASE)
-    steps = []
-    for c in commits:
-        m = step_pattern.search(c.title or "")
-        if m:
-            steps.append(int(m.group(1)))
-    if not steps:
+    commits = _list_checkpoint_commits(model, revision)
+    if not commits:
         raise RuntimeError(
             f"No checkpoint commits found in {model} commit history. "
             "Titles should contain 'step N, checkpoint' (standard HF Trainer format)."
         )
-    return max(steps)
+    return max(step for step, _ in commits)
+
+
+def _resolve_step_revision(model: str, step: int) -> str:
+    """Return the HF commit hash for a specific checkpoint step.
+
+    Looks for commits titled 'Training in progress, step N, checkpoint'.
+    Raises RuntimeError if the step is not found.
+    """
+    from pathlib import Path as _Path
+    if _Path(model).exists():
+        raise RuntimeError("Auto-revision requires a HF Hub model ID, not a local path.")
+    commits = _list_checkpoint_commits(model)
+    for s, commit_id in commits:
+        if s == step:
+            return commit_id
+    available = sorted(s for s, _ in commits)
+    raise RuntimeError(
+        f"Step {step} not found in {model} checkpoint commits. "
+        f"Available steps: {available}"
+    )
 
 
 def _model_tag(model: str) -> str:
@@ -247,7 +338,15 @@ def main():
                              "Mutually exclusive with --checkpoint_step.")
     parser.add_argument("--revision", type=str, default=None,
                         help="HF Hub git revision (branch, tag, or commit hash). "
-                             "Default: main. Use to pin a specific HF commit for reproducibility.")
+                             "If omitted and --checkpoint_step is given, the revision is "
+                             "auto-resolved from HF commit history (looks for 'step N, checkpoint'). "
+                             "Use to override auto-resolution with an exact hash.")
+    parser.add_argument("--problem_batch_size", type=int, default=8,
+                        help="Number of problems to batch together per generate() call. "
+                             "Higher = better GPU utilization but more VRAM. "
+                             "Each call does problem_batch_size * n_samples sequences. "
+                             "Default 8 (= 64 sequences per call for pass@8). "
+                             "Reduce if OOM.")
     parser.add_argument("--max_samples", type=int, default=None,
                         help="Limit to N problems (debugging only).")
     parser.add_argument("--stats_only", action="store_true",
@@ -265,6 +364,16 @@ def main():
     if args.latest:
         args.checkpoint_step = _resolve_latest_step(args.model, args.revision)
         print(f"Latest checkpoint step: {args.checkpoint_step}")
+
+    # Auto-resolve revision from checkpoint_step if not explicitly provided.
+    # --checkpoint_step only names the output file; the actual model revision loaded
+    # is controlled by --revision. Without this, you'd load 'main' (latest) regardless
+    # of --checkpoint_step — the wrong checkpoint with the right filename.
+    from pathlib import Path as _Path
+    if args.checkpoint_step and not args.revision and not _Path(args.model).exists():
+        print(f"Auto-resolving HF revision for step {args.checkpoint_step}...")
+        args.revision = _resolve_step_revision(args.model, args.checkpoint_step)
+        print(f"Resolved: step {args.checkpoint_step} → {args.revision}")
 
     tag = _model_tag(args.model)
     output_path = f"outputs/{tag}_step{args.checkpoint_step}_math500_results.json"
@@ -303,53 +412,89 @@ def main():
     # Step 2+3: Load model and generate completions
     # -----------------------------------------------------------------------
     revision_str = args.revision or "main"
-    print(f"Loading model: {args.model} (revision={revision_str})")
-    tokenizer = load_tokenizer_safe(args.model, revision=args.revision)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model,
-        revision=args.revision,
-        dtype=torch.bfloat16,
-        device_map="auto",
-    )
-    model.eval()
 
-    # Capture actual HF commit hash for provenance (None for local models)
-    hf_commit_hash = getattr(model.config, "_commit_hash", None)
-    print(f"HF commit hash: {hf_commit_hash or 'N/A (local model)'}")
+    # Detect vLLM early so we skip loading HF model if not needed
+    use_vllm = False
+    try:
+        import vllm  # noqa: F401
+        use_vllm = True
+    except ImportError:
+        pass
 
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
+    ds_list = list(ds)
+    all_prompts = [create_prompt(ex["problem"]) for ex in ds_list]
     results = []
-    print(f"Generating: pass@1 (greedy) + pass@{N_SAMPLES} (temp={TEMPERATURE}) "
-          f"max_new_tokens={MAX_NEW_TOKENS}...")
 
-    for ex in tqdm(ds):
-        problem = ex["problem"]
-        expected = ex["answer"]   # pre-extracted, no \boxed{}
-        level = ex["level"]
-        subject = ex["subject"]
-        prompt = create_prompt(problem)
+    if use_vllm:
+        print(f"Backend: vLLM  |  pass@1 (greedy) + pass@{N_SAMPLES} (temp={TEMPERATURE}) "
+              f"max_new_tokens={MAX_NEW_TOKENS}...")
+        # Patch the Qwen3 extra_special_tokens bug in the HF cache before vLLM loads tokenizer
+        load_tokenizer_safe(args.model, revision=args.revision)
+        hf_commit_hash = args.revision  # vLLM doesn't expose commit hash; use resolved revision
+        greedy_all, sampling_all = run_eval_vllm(args.model, args.revision, all_prompts)
+        for i, ex in enumerate(ds_list):
+            resp1 = greedy_all[i]
+            pass1_samples = [{"response": resp1, "predicted": extract_boxed(resp1)}]
+            pass8_samples = [{"response": r, "predicted": extract_boxed(r)} for r in sampling_all[i]]
+            results.append({
+                "problem": ex["problem"],
+                "expected": ex["answer"],
+                "level": ex["level"],
+                "subject": ex["subject"],
+                "pass1": pass1_samples,
+                "pass8": pass8_samples,
+            })
+    else:
+        # HF fallback: load model here (skipped when vLLM is used)
+        print(f"Backend: HF (install vllm for faster eval)  |  loading model: {args.model} (revision={revision_str})")
+        tokenizer = load_tokenizer_safe(args.model, revision=args.revision)
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model,
+            revision=args.revision,
+            dtype=torch.bfloat16,
+            device_map="auto",
+        )
+        model.eval()
+        hf_commit_hash = getattr(model.config, "_commit_hash", None)
+        print(f"HF commit hash: {hf_commit_hash or 'N/A (local model)'}")
 
-        # pass@1: greedy
-        resp1 = generate_samples(model, tokenizer, prompt, n=1, temperature=0.0,
-                                  max_new_tokens=MAX_NEW_TOKENS)[0]
-        pred1 = extract_boxed(resp1)
-        pass1_samples = [{"response": resp1, "predicted": pred1}]
+        # HF generation waits for the longest sequence in the batch —
+        # smaller batch sizes are faster when completion lengths vary widely.
+        # Reduce --problem_batch_size to 1 if throughput seems poor.
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
 
-        # pass@8: sampling
-        resps8 = generate_samples(model, tokenizer, prompt, n=N_SAMPLES,
-                                   temperature=TEMPERATURE, max_new_tokens=MAX_NEW_TOKENS)
-        pass8_samples = [{"response": resp, "predicted": extract_boxed(resp)} for resp in resps8]
+        B = args.problem_batch_size
+        print(f"Backend: HF (vLLM not available)  |  pass@1 (greedy) + pass@{N_SAMPLES} "
+              f"(temp={TEMPERATURE}) max_new_tokens={MAX_NEW_TOKENS}, problem_batch_size={B}...")
 
-        results.append({
-            "problem": problem,
-            "expected": expected,
-            "level": level,
-            "subject": subject,
-            "pass1": pass1_samples,
-            "pass8": pass8_samples,
-        })
+        for batch_start in tqdm(range(0, len(ds_list), B), total=(len(ds_list) + B - 1) // B,
+                                desc="batches"):
+            batch = ds_list[batch_start:batch_start + B]
+            prompts = all_prompts[batch_start:batch_start + B]
+
+            greedy_results = generate_batch(model, tokenizer, prompts,
+                                            n_per_prompt=1, temperature=0.0,
+                                            max_new_tokens=MAX_NEW_TOKENS)
+            sampling_results = generate_batch(model, tokenizer, prompts,
+                                              n_per_prompt=N_SAMPLES, temperature=TEMPERATURE,
+                                              max_new_tokens=MAX_NEW_TOKENS)
+
+            for i, ex in enumerate(batch):
+                resp1 = greedy_results[i][0]
+                pass1_samples = [{"response": resp1, "predicted": extract_boxed(resp1)}]
+                pass8_samples = [
+                    {"response": resp, "predicted": extract_boxed(resp)}
+                    for resp in sampling_results[i]
+                ]
+                results.append({
+                    "problem": ex["problem"],
+                    "expected": ex["answer"],
+                    "level": ex["level"],
+                    "subject": ex["subject"],
+                    "pass1": pass1_samples,
+                    "pass8": pass8_samples,
+                })
 
     # Save raw generations — scoring is done by rescore_math500.py
     output = {

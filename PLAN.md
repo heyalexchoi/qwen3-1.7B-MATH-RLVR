@@ -9,9 +9,9 @@ For session history and decisions, see `memory/math-rlvr.md`.
 
 ## Current Run
 
-**Phase:** GRPO training from base model — 🔄 RUNNING (PID 3235, started 2026-04-11 01:19 UTC, ~40% complete at step 3000/7500 as of 13:25 UTC)
+**Phase:** GRPO training COMPLETE — step 7496, wandb `99hauae9`, L40S pod `ad0z39tw8zmc3w`. Best checkpoint: step 3000 (collapsed after). See README → Key Findings.
 
-**Eval pod running in parallel:** `qzwfoxy4bfc4fd` (L40S, $0.86/hr) — eval PID 704, started 13:41 UTC, ~70 min ETA. Training pod NOT stopped per user request.
+**Next up:** Binary search checkpoint eval (Step [4c]) + train/eval reward gap investigation. See below.
 
 ### SFT eval outcome (completed 2026-04-10)
 
@@ -295,6 +295,114 @@ From the rescored JSON on HF (`outputs/grpo_step<N>_math500_mv_rescored.json`) �
 - Compare to baseline: 35.80% greedy / 65.00% pass@8 / 24.55% inferred pass@1 (all math-verify)
 
 Then upload both eval outputs to HF (see Canonical Data Artifacts → HF artifact upload).
+
+---
+
+## Step [4c]: Binary Search Checkpoint Eval
+
+**Goal:** Find the best checkpoint — the step with the highest inferred pass@1. Step 3000 is the best known (36.83%) but is not necessarily the peak. Use binary search to find a better checkpoint with at most 4 evals total.
+
+**Known reference points:**
+- Baseline (step 0): 35.80% greedy / 65.00% pass@8 / 24.55% inferred pass@1
+- Step 3000: 44.20% greedy / 71.40% pass@8 / **36.83% inferred** ✅ (best known)
+- Step 5000: 11.60% greedy / 30.80% pass@8 / **9.83% inferred** ❌ (collapsed below base)
+
+**Why binary search is possible:** Every 500-step checkpoint was pushed to HF Hub via `hub_strategy="checkpoint"`. Each push creates a distinct HF commit. All steps from 500 to 7000 (plus ~7496 final) are directly addressable by commit hash or `--checkpoint_step`. The full commit history is browsable at `heyalexchoi/qwen3-1.7b-math-grpo`.
+
+**Metric for all comparisons:** inferred pass@1 (c/n from pass@8 samples, math-verify). Primary metric — use `summary.pass1_inferred_cn` in the `*_mv_rescored.json` output.
+
+**Plan (start at 2500, 3 additional evals max = 4 total):**
+
+Eval 1: **Step 2500** — tests whether the peak is below step 3000.
+
+Branch on result (compare step 2500 inferred pass@1 against step 3000's 36.83%):
+
+**If step 2500 < step 3000** (< 36.83% — peak is at step 3000 or later, before collapse):
+- Eval 2: step **4000** (midpoint between best-known 3000 and bad 5000)
+  - If 4000 > step 3000: new best is 4000; Eval 3 = step **4500** (search higher)
+  - If 4000 ≤ step 3000: best is still 3000; Eval 3 = step **3500** (check between 3000 and 4000)
+- Eval 4: narrow further toward the peak
+
+**If step 2500 ≥ step 3000** (≥ 36.83% — peak is at step 2500 or earlier):
+- Eval 2: step **2000** (search for higher earlier)
+  - If 2000 > 2500: new best is 2000; Eval 3 = step **1500**
+  - If 2000 ≤ 2500: best is still 2500; Eval 3 = step **3500** (check if there's a later peak too)
+- Eval 4: narrow further toward the peak
+
+**Eval environment:** requires a GPU pod (L40S 48GB preferred, ~$0.39/hr — fine for inference). See `docs/runpod.md` for pod create/SSH/setup commands. `HF_TOKEN` is needed to download checkpoints from `heyalexchoi/qwen3-1.7b-math-grpo` — load from `~/.config/openclaw/secrets.env` on local machine or source on pod. Full eval pod setup: see Step [4a] → "Eval pod setup" in this file.
+
+**How to run each eval:**
+
+```bash
+# On eval pod — runs greedy pass@1 + pass@8, uploads raw results to HF
+# --checkpoint_step auto-resolves the HF revision (no --revision needed)
+python scripts/math500_eval.py \
+  --model heyalexchoi/qwen3-1.7b-math-grpo \
+  --checkpoint_step <STEP> \
+  --upload
+
+# Score with math-verify and upload rescored artifact
+python scripts/rescore_math500.py \
+  --input outputs/grpo_step<STEP>_math500_results.json \
+  --upload
+```
+
+**IMPORTANT — `--checkpoint_step` vs `--revision`:**
+`--checkpoint_step N` sets the output filename and auto-resolves the HF revision. The model loaded is determined by `--revision` (or auto-resolved from `--checkpoint_step`). If you pass `--checkpoint_step` WITHOUT `--revision` on an older version of the script that lacks auto-resolution, you will silently load `main` (the final checkpoint) with the wrong filename. Always verify `HF commit hash:` in the log matches the expected step.
+
+**Checkpoint commit hashes** (for manual `--revision` or verification):
+
+| Step | Commit hash (checkpoint) |
+|------|--------------------------|
+| 500 | 4801e00f6762 |
+| 1000 | b7b64474bc99 |
+| 1500 | 4e84de65ab6d |
+| 2000 | 116610f38b31 |
+| 2500 | ae026dfd5d82 |
+| 3000 | 63870ec239b2 |
+| 3500 | 6f78a3874d3b |
+| 4000 | cc0dab1746d7 |
+| 4500 | ad273d44bba9 |
+| 5000 | 45039f2e75f0 |
+| 5500 | 131aa308fc56 |
+| 6000 | cba6dabfb1b9 |
+| 6500 | 57491eb839b2 |
+| 7000 | f29cfbf26e6f |
+| 7496 | 50a75490b280 |
+
+Estimated runtime per eval: ~20 min on L40S with vLLM backend (installed). Run greedy+sampling in a single invocation — no separate commands needed.
+
+**Output and recording:** After each eval, record the inferred pass@1 in the table below, then decide the next step per the branch logic above.
+
+| Step | Inferred pass@1 | Greedy | Pass@8 | Source | Status |
+|------|----------------|--------|--------|--------|--------|
+| 0 (base) | 24.55% | 35.80% | 65.00% | local | ✅ reference |
+| 3000 | 36.83% | 44.20% | 71.40% | **local checkpoint** | ⚠️ see note below |
+| 3000 (re-eval) | 9.22% | 11.20% | 26.00% | HF Hub `63870ec` | ❌ collapsed — HF Hub ≠ local |
+| 5000 | 9.83% | 11.60% | 30.80% | HF Hub | ❌ known bad |
+| 2500 | 8.70% | 11.00% | 29.60% | HF Hub | ❌ collapsed |
+| 3500 | 9.05% | 11.20% | 29.20% | HF Hub | ❌ collapsed |
+| 4000 | 9.68% | 10.80% | 30.40% | HF Hub | ❌ collapsed |
+
+**⚠️ Critical finding (2026-04-13):** The original step 3000 eval (44.20% greedy) was from a **local checkpoint** (`outputs/grpo_checkpoint`, wandb run `ckz7jwil`), not from HF Hub. Re-eval of HF Hub commit `63870ec239b2` (auto-resolved as "step 3000") returns 11.2% — collapsed like every other step. **All HF Hub checkpoints evaluated are collapsed.** The 44.2% result cannot be reproduced from HF Hub. Either the local checkpoint was from a different training run than what was pushed to HF Hub, or the HF commit labeled "step 3000" doesn't correspond to the actual best-performing weights.
+
+**Binary search conclusion:** No good checkpoint found on HF Hub. The local checkpoint that produced 44.2% is the only evidence of a good model, and it is either lost or not on HF Hub under the step-3000 commit.
+
+Update PLAN.md and README.md Results table as each eval completes.
+
+---
+
+## Step [4d]: Train/Eval Reward Gap Investigation ✅ COMPLETE
+
+**Conclusion: no logging artifact — gap explained by temperature phase transition in repetition loops. See README → "Train/eval reward gap findings".**
+
+`train/reward` (TRL `grpo_trainer.py:2024`) = `rewards.mean()` = mean correctness over all rollouts (N_prompts × 8) at temp=0.9 on training data. Binary 0/1 per rollout. Correctly computed.
+
+Key evidence: smoothed training reward at step 3000 (0.357) ≈ step 5000 (0.354) — flat throughout. Eval inferred pass@1: 36.83% (step 3000) → 9.83% (step 5000). Training reward gave zero signal of collapse.
+
+Gap explained by **temperature phase transition in repetition loops** — not memorization or distribution differences (train/test are same distribution, <1 epoch, same level balance within ~4pp). At step 3000 (healthy), temp ordering is normal: greedy (44.2%) > temp=0.7 (36.8%) > temp=0.9 (35.7%). At step 5000 (collapsed), ordering **flips**: temp=0.9 (35.4%) >> greedy (11.6%) > temp=0.7 (9.8%). Repetition loops are self-reinforcing below a critical temperature; at temp=0.9 they break within a few iterations. Training temp of 0.9 was above this threshold, making collapse invisible to the reward signal.
+
+Implication: training reward at temp=0.9 is blind to repetition degeneration. Must monitor greedy/temp=0.7 eval during training, or add explicit loop detection.
 
 ---
 

@@ -14,9 +14,10 @@ export PATH="$HOME/.local/bin:$PATH"  # runpodctl lives here
 
 ## Current Pod
 
-- **Pod:** `ees8jnpvmidfzk` — L40S 48GB, `root@103.196.86.48 -p 28401`, $0.86/hr
+- **Pod:** `ad0z39tw8zmc3w` — L40S 48GB, `root@103.196.86.50 -p 24362`, $0.86/hr
 - **Project path on pod:** `/workspace/qwen3-math-rlvr/`
-- **Status:** GRPO training running (PID 755, resumed from step 5000/epoch 0.667). torch 2.6.0, TRL 1.0.0, math-verify installed.
+- **Status:** GRPO training running (PID 1561, resumed from step 5000/epoch 0.667, ~step 5018+ as of 2026-04-12 02:34 UTC). torch 2.6.0, TRL 1.0.0, math-verify installed.
+- **WandB run:** `99hauae9` — https://wandb.ai/heyalexchoi/qwen3-math-rlvr/runs/99hauae9
 
 ## Previous Pod (stopped)
 
@@ -84,6 +85,52 @@ rsync -av --exclude='outputs/' --exclude='__pycache__/' --exclude='.git/' \
 
 Always write checkpoints and logs to `/workspace/` — container disk does NOT persist across restarts.
 
+## One-Command Setup (preferred)
+
+`scripts/setup_runpod_training.sh` handles the full setup in one shot. Run from local machine:
+
+### Step 0: Create `secrets.env` in project root (one-time)
+
+The credentials already live at `~/.config/openclaw/secrets.env` on the local machine. Copy them to the project root so rsync picks them up:
+
+```bash
+cp ~/.config/openclaw/secrets.env /home/dev/.openclaw/workspace/qwen3-math-rlvr/secrets.env
+```
+
+The file must contain `HF_TOKEN` and `WANDB_API_KEY` (bare `KEY=VALUE`, no `export`):
+```
+HF_TOKEN=hf_xxxx
+WANDB_API_KEY=xxxx
+GITHUB_TOKEN=ghp_xxxx   # optional, for private repo clone
+```
+
+This file gets rsynced to the pod. The setup script sources it to write HF and WandB credentials. Without it, the script exits immediately with an error. `secrets.env` is gitignored — never committed.
+
+### Step 1–2: Rsync + run setup
+
+```bash
+# Step 1: Rsync project to pod (secrets.env and data/math_train.jsonl go with it)
+rsync -av --exclude='outputs/' --exclude='__pycache__/' --exclude='.git/' --exclude='wandb/' \
+  -e "ssh -i ~/.runpod/ssh/RunPod-Key-Go -p <PORT> -o StrictHostKeyChecking=no" \
+  /home/dev/.openclaw/workspace/qwen3-math-rlvr/ root@<IP>:/workspace/qwen3-math-rlvr/
+
+# Step 2: SSH in and run setup
+ssh -i ~/.runpod/ssh/RunPod-Key-Go -o StrictHostKeyChecking=no root@<IP> -p <PORT> \
+  'cd /workspace/qwen3-math-rlvr && bash scripts/setup_runpod_training.sh'
+```
+
+To resume from a specific checkpoint (default: auto-downloads latest from HF Hub):
+```bash
+ssh ... 'cd /workspace/qwen3-math-rlvr && bash scripts/setup_runpod_training.sh \
+  --resume_from_checkpoint outputs/grpo_checkpoint/last-checkpoint'
+```
+
+`secrets.env` is in `.gitignore` — rsynced to the pod, never committed.
+
+The script: loads secrets, upgrades torch, clones repo, installs deps, writes HF + WandB credentials, downloads math_train.jsonl, downloads latest checkpoint from HF Hub, launches training.
+
+**Use manual steps below only if the script fails for a specific reason.**
+
 ## Install Deps
 
 **PyTorch upgrade required first** — the `runpod/pytorch:2.4.0` image ships PyTorch 2.4.1, but TRL 1.0.0 requires 2.6.0+ (imports `FSDPModule` added in 2.6). Always upgrade before installing requirements:
@@ -106,6 +153,8 @@ Fire and forget step 2 — check `/workspace/pip_install.log` for completion, do
 
 **Why explicit logins?** `~/.config/openclaw/secrets.env` uses bare `KEY=VALUE` format (no `export`). Plain `source secrets.env` sets shell vars but doesn't propagate them to child processes. `set -a; source; set +a` works for one-off commands but isn't persistent. Writing to `~/.netrc` (wandb) and `~/.cache/huggingface/token` (HF) avoids env-var dependency entirely — these files are always checked by their respective clients.
 
+**⚠️ HF token must be written BEFORE training starts.** `hub_strategy="checkpoint"` attempts to create the HF repo at `GRPOTrainer.__init__()` — not at push time. If the token is missing at init, training crashes with 401 immediately. `huggingface-cli login` or writing directly to `~/.cache/huggingface/token` both work.
+
 ## Launch Training
 
 ```bash
@@ -122,6 +171,22 @@ EOF
 **`set -a` is required — do not omit.** Plain `source secrets.env` sets shell vars but doesn't export them to child processes. Without it, `HUGGING_FACE_HUB_TOKEN` is invisible to the training script and the hub push fails with 401. `wandb login` (done at setup) writes to `~/.netrc`, which wandb checks independently — belt-and-suspenders for wandb, but `HF_TOKEN` has no equivalent file-based auth, so `set -a` is the only fix for HF.
 
 Always `nohup` + absolute log path on `/workspace/`. Set a monitoring cron after launch.
+
+**`TORCH_FORCE_WEIGHTS_ONLY=0` is required for resuming checkpoints.** TRL checkpoints include `rng_state.pth` which contains numpy arrays. PyTorch 2.6 rejects these with the new `weights_only=True` default. Prefix the training command:
+
+```bash
+TORCH_FORCE_WEIGHTS_ONLY=0 nohup python scripts/grpo_train.py --push_to_hub \
+  --resume_from_checkpoint outputs/grpo_checkpoint/last-checkpoint \
+  > logs/grpo_launch.log 2>&1 &
+```
+
+**`math_train.jsonl` is not in git.** If it's missing, training crashes immediately with `FileNotFoundError`. The setup script downloads it automatically. Manual SCP:
+
+```bash
+scp -i ~/.runpod/ssh/RunPod-Key-Go -o StrictHostKeyChecking=no -P <PORT> \
+  /home/dev/.openclaw/workspace/qwen3-math-rlvr/data/math_train.jsonl \
+  root@<IP>:/workspace/qwen3-math-rlvr/data/math_train.jsonl
+```
 
 ## Stop vs Remove
 
@@ -150,6 +215,30 @@ Before `pod remove`:
 **Never delegate pod removal to a subagent.** Subagents don't know what's been backed up.
 
 > **Incident (2026-04-09):** Subagent removed pod `po3jbrudxordap` before rsyncing SFT checkpoint-1000 (~$5 compute lost permanently).
+
+## Disk Space — Always Use Volume for HF Cache
+
+Container root disk is typically **30GB**. Each model checkpoint revision downloads ~3.4GB. After 4–5 downloads the root disk fills and vLLM silently fails to load the model.
+
+**Always redirect HF cache to `/workspace` before running eval:**
+
+```bash
+# One-time fix on a pod (if not already done by setup script):
+mkdir -p /workspace/.hf_cache
+if [[ -d ~/.cache/huggingface && ! -L ~/.cache/huggingface ]]; then
+  cp -a ~/.cache/huggingface/. /workspace/.hf_cache/
+  rm -rf ~/.cache/huggingface
+fi
+ln -s /workspace/.hf_cache ~/.cache/huggingface
+```
+
+`setup_runpod_training.sh` does this automatically at step 5. If running eval manually on a pod not set up with that script, run the above first.
+
+To verify:
+```bash
+ls -la ~/.cache/huggingface  # should show: -> /workspace/.hf_cache
+df -h /workspace             # should show ≥30GB free
+```
 
 ## OOM Notes
 

@@ -17,9 +17,12 @@ Demonstrating distillation + RLVR on math reasoning with Qwen3-1.7B-Base.
 [2] Generate Qwen3-32B traces                          ✅  7,154 correct traces (95.51%)
 [3] SFT on correct traces                              ✅  (degenerate — see Key Findings)
 [3a] SFT eval — MATH-500                               ✅  ~0% — both checkpoints degenerate
-[4] GRPO from base model                               🔄 RUNNING (step ~3000+/7500, wandb ckz7jwil)
-[4a] GRPO eval — checkpoint-3000                       ✅  44.20% greedy / 71.40% pass@8 / 36.83% inferred
-[5] Final eval — base vs GRPO                          ⏳
+[4] GRPO from base model                               ✅  DONE (step 7496, wandb 99hauae9) — see Key Findings
+[4a] GRPO eval — checkpoint-3000 (local)               ✅  44.20% greedy / 71.40% pass@8 / 36.83% inferred (⚠️ local only — see Key Findings)
+[4b] GRPO eval — checkpoint-5000 (HF Hub)             ✅  11.60% greedy / 30.80% pass@8 / 9.83% inferred (collapsed — see Key Findings)
+[4c] Binary search: steps 2500/3500/4000/3000(HF)     ✅  All collapsed ~9-11% — HF Hub has no good checkpoint (see Key Findings)
+[4d] Train/eval reward gap investigation               ✅  No logging artifact — see Key Findings
+[5] Retrain GRPO with collapse mitigations             ⏳  See Key Findings → recommendation
 ```
 
 ---
@@ -30,8 +33,9 @@ Demonstrating distillation + RLVR on math reasoning with Qwen3-1.7B-Base.
 |-------|----------------|--------|-------|
 | Base | **24.55%** (inferred c/n) / 35.8% (greedy) ✅ | **65.0%** ✅ | math-verify; `outputs/baseline_math500_mv_rescored.json` |
 | Post-SFT | ~0% | — | Degenerate — both 1-epoch and 3-epoch checkpoints (see Key Findings) |
-| GRPO step-3000 (40% of training) | **36.83%** (inferred c/n) / **44.20%** (greedy) ✅ | **71.40%** ✅ | math-verify; `outputs/grpo_step3000_math500_mv_rescored.json` (+12.3pp inferred vs base) |
-| Post-GRPO (target) | ~85–90% | — | Training in progress — step 3000/7500 as of 2026-04-11 |
+| GRPO step-3000 (local ckpt) | **36.83%** (inferred c/n) / **44.20%** (greedy) ⚠️ | **71.40%** ⚠️ | Local checkpoint only — **cannot reproduce from HF Hub** (see Key Findings → HF Hub divergence) |
+| GRPO step-3000 (HF Hub `63870ec`) | 9.22% (inferred) / 11.2% (greedy) ❌ | 26.0% ❌ | HF Hub re-eval — collapsed like all other steps |
+| GRPO steps 2500/3500/4000/5000 (HF Hub) | ~9–10% (inferred) / ~11% (greedy) ❌ | ~29–31% ❌ | All collapsed — repetition degeneration (see Key Findings) |
 
 ### Baseline by level (math-verify)
 
@@ -132,6 +136,8 @@ Note: `temperature=0.7` is the default in `math500_eval.py` and matches what `ma
 | `outputs/baseline_math500_mv_rescored.json` | `rescore_math500.py` | `outputs/baseline_math500_mv_rescored.json` | Same responses re-scored with math-verify — authoritative baseline: 35.8% / 65.0% / 24.55% |
 | `outputs/grpo_step3000_math500_results.json` | `math500_eval.py` | ✅ On HF | GRPO checkpoint-3000 (epoch 0.40) — 500 problems × (greedy + 8 samples) |
 | `outputs/grpo_step3000_math500_mv_rescored.json` | `rescore_math500.py` | ✅ On HF | Step-3000 rescored: 44.20% greedy / 71.40% pass@8 / 36.83% inferred |
+| `outputs/grpo_step5000_math500_results.json` | `math500_eval.py` | ✅ On HF | GRPO checkpoint-5000 (67% of training) — collapsed; raw generations show repetition loops |
+| `outputs/grpo_step5000_math500_mv_rescored.json` | `rescore_math500.py` | ✅ On HF | Step-5000 rescored: 11.60% greedy / 30.80% pass@8 / 9.83% inferred (below base) |
 | `outputs/baseline_results.json` | `baseline_eval.py` | — | GSM8K baseline (separate dataset) — not MATH-500 |
 
 Response text in `math500_results.json` and `baseline_math500_mv_rescored.json` is byte-identical. The rescored file updates the `correct` flag on every sample and adds `pass1_mv`/`pass8_mv` per-sample boolean arrays and a `summary` block with final numbers.
@@ -221,6 +227,114 @@ SFT distillation failed because the 1.7B model cannot reproduce 32B-style reason
 
 **Precedent:** DeepSeek-R1 demonstrated that RL from base models can teach reasoning without SFT warmup. The base model's latent capability (pass@8 = 65%) is the raw material; GRPO shapes it into reliable single-pass performance.
 
+### GRPO collapse after step 3000: repetition degeneration
+
+Binary search across checkpoints confirmed: every HF Hub checkpoint (steps 2500, 3000, 3500, 4000, 5000) shows collapse to ~9-11% greedy. No good checkpoint was found on HF Hub.
+
+#### Scores (math-verify)
+
+| Step | Source | Greedy pass@1 | Pass@8 | Inferred pass@1 (c/n) |
+|------|--------|--------------|--------|----------------------|
+| Base | local | 35.80% | 65.00% | 24.55% |
+| Step 3000 | **local ckpt** | **44.20%** ⚠️ | **71.40%** ⚠️ | **36.83%** ⚠️ |
+| Step 3000 | HF Hub `63870ec` | 11.20% ❌ | 26.00% ❌ | 9.22% ❌ |
+| Step 2500 | HF Hub | 11.00% ❌ | 29.60% ❌ | 8.70% ❌ |
+| Step 3500 | HF Hub | 11.20% ❌ | 29.20% ❌ | 9.05% ❌ |
+| Step 4000 | HF Hub | 10.80% ❌ | 30.40% ❌ | 9.68% ❌ |
+| Step 5000 | HF Hub | 11.60% ❌ | 30.80% ❌ | 9.83% ❌ |
+
+#### HF Hub divergence — original step-3000 result cannot be reproduced
+
+The original step-3000 eval (44.20%) loaded from a **local checkpoint** (`outputs/grpo_checkpoint`, wandb run `ckz7jwil`). Re-eval using HF Hub commit `63870ec239b2` (auto-resolved as step 3000 from commit history) yields 11.2% — collapsed like every other step. The local checkpoint and HF Hub commit do not match. The 44.2% result may be from a different training run or a checkpoint that was never correctly pushed to HF Hub. **Do not rely on the 44.2% result without first recovering and verifying the original local checkpoint.**
+
+#### Observed pathology
+
+Inspecting raw step-5000 greedy completions directly revealed the failure mode. Most responses degenerate into an infinite repetition loop before ever closing `\boxed{}`:
+
+```
+...The answer is \frac{14}{3}} = \frac{14}{3}} = \frac{14}{3}} = \frac{14}{3}} = ...
+```
+
+The model hits `max_new_tokens=2048` in the loop, no `\boxed{}` is extractable, prediction is empty, answer is marked wrong. By contrast, step-3000 completions are clean:
+
+```
+Thus f(-2) + f(-1) + f(0) = 2 + 5/3 + 1 = 14/3. The answer is \boxed{\frac{14}{3}}.
+```
+
+The pattern is not limited to greedy decoding. Pass@8 at temp=0.7 also collapsed (30.8% vs base 65%): 58% of the 4,000 sampled completions also hit the 2048-token limit with no answer. See Hypothesis section for the length distribution breakdown.
+
+#### Hypothesis: distribution collapse into short-answer vs. loop modes
+
+Inspecting response lengths in the step-5000 eval shows the output distribution split into two distinct modes (bimodal), with almost nothing in between:
+
+| Response type | Greedy | Pass@8 (temp=0.7) | Mean length |
+|---------------|--------|-------------------|-------------|
+| Completed (has `\boxed{}`) | 185/500 (37%) | 1692/4000 (42%) | **44 words** |
+| Looped (no `\boxed{}`, hit 2048-token limit) | 315/500 (63%) | 2308/4000 (58%) | **810 words** |
+
+The normal middle ground — coherent multi-step reasoning chains of ~200–500 words — has essentially disappeared. Both training and eval used `max_completion_length=2048`. Loops got reward=0 in training — they were not being rewarded. Training reward stayed ~0.41 because ~41% of temp=0.9 rollouts hit the short-answer mode successfully.
+
+**The following are hypotheses about the mechanism — not established facts.** The exact causal chain is unconfirmed; multiple factors likely interact.
+
+1. **(Hypothesis) GRPO may have reinforced short direct answers over reasoning chains.** Completions that reasoned step-by-step had more opportunities to fail (wrong intermediate step, loop, hit token limit) — reward=0. Short completions that stated the answer directly and happened to be correct got reward=1. Over time the model may have learned to skip reasoning and state answers directly. This may have worked at step 3000 but left no coherent fallback when the direct-answer strategy failed.
+
+2. **(Hypothesis) When the direct-answer strategy fails, the model enters a degenerate loop.** Having potentially been pushed away from its original reasoning distribution, the model may have no coherent fallback. It starts generating a computation pattern and repeats it indefinitely. Greedy decoding pins the model to this loop; temp=0.7 sampling escapes it sometimes (hence pass@8 > greedy, but both well below base).
+
+3. **(Hypothesis) `beta=0.0` (no KL penalty) may have enabled unconstrained distribution drift.** No force anchors the policy to the base model's behavior. The distribution can drift arbitrarily far from the base's reasoning-chain style. A nonzero beta would limit this drift.
+
+4. **Training reward vs. eval accuracy gap (open question).** Training reward was ~0.41 at step 5000 while eval inferred pass@1 was only 9.83% — a ~4× gap not explained by temperature difference alone (training rollouts at temp=0.9, eval at temp=0.7). This could indicate overfitting to the training distribution, a mismatch in how reward is computed during training vs. eval, or that the high training reward was driven by easy problems the model already knew while the MATH-500 test set skews harder. This gap is not yet understood and warrants investigation in the next run.
+
+5. **No greedy eval during training meant collapse was invisible.** Training reward is measured on temp=0.9 sampled rollouts, which hit the short-answer mode ~41% of the time and look healthy. The collapse was invisible until post-hoc checkpoint eval. Greedy pass@1 every 500 steps would have caught this around step 3500–4000.
+
+#### Recommendation for next run
+
+The minimum effective fixes, in priority order (per Opus assessment):
+
+1. **Eval greedy every 500 steps during training** — use a small held-out set (50–100 problems). Treat greedy pass@1 as the early-stopping signal, not training reward. This alone would have saved this run at step 3000.
+
+2. **Apply nonzero KL (`beta=0.01–0.05`)** — provides a soft anchor to the base distribution. Prevents the policy from drifting arbitrarily far from the base model's behavior. Trade-off: constrains exploration slightly. This was beta=0.0 in the current run (pure zero-RL / DAPO).
+
+3. **Add a format/length reward** — reward responses that contain a reasoning chain before `\boxed{}`, or penalize responses under N words. This prevents the model from collapsing to direct-answer mode by making the short-answer shortcut unrewarding.
+
+4. **Training reward is not a proxy for generalization** — verified (see Train/eval reward gap findings below). Use greedy pass@1 on a held-out set as the signal.
+
+Note: `repetition_penalty` during rollout generation is an additional option (prevents loop formation), but was not part of the Opus assessment and is lower priority than the above.
+
+Step 3000 checkpoint (`heyalexchoi/qwen3-1.7b-math-grpo`, commit `63870ec`) is the best model from this run and the recommended starting point for analysis.
+
+#### Train/eval reward gap findings
+
+**Result: no logging artifact — the gap is real and explained by two compounding factors.**
+
+`train/reward` (TRL source: `grpo_trainer.py:2024`, `rewards.mean().item()`) = mean correctness fraction across all rollouts in the batch at training temperature (temp=0.9) on training problems. Binary 0/1 per rollout, averaged over all N_prompts × 8 rollouts. This is correctly computed — no artifact.
+
+**The gap:**
+
+| | Step 3000 | Step 5000 |
+|--|-----------|-----------|
+| Training reward (temp=0.9, train data) | 0.357 | 0.354 |
+| Eval inferred pass@1 (temp=0.7, MATH-500) | 36.83% | 9.83% |
+
+Training reward at step 3000 ≈ eval accuracy (0.357 vs 0.368 — training is a reasonable proxy when the model is healthy). At step 5000, training reward is nearly identical (0.354) while eval has crashed 3.7×. The training metric showed no signal of collapse.
+
+**Why training reward stays healthy when the model has collapsed:**
+
+The gap is explained entirely by **temperature** — but the effect is much larger than a naive estimate would suggest, due to a phase-transition dynamic in repetition loops.
+
+At step 3000 (healthy), the temperature ordering is normal:
+- Greedy (temp=0): **44.20%** > temp=0.7: **36.83%** > temp=0.9: **~35.7%**
+- Higher temperature adds noise to good output → slightly hurts accuracy.
+
+At step 5000 (collapsed), the ordering **flips**:
+- Temp=0.9: **~35.4%** >> greedy (temp=0): **11.60%** > temp=0.7: **9.83%**
+- Higher temperature now *massively helps* (3.1× boost vs greedy).
+
+The mechanism: repetition loops are **self-reinforcing** — once the model outputs a pattern like `= \frac{14}{3}}` twice, each subsequent repetition becomes more likely given the context. At temp=0.7, sampling is peaked enough that each token follows the loop with high probability → the loop persists to max_new_tokens (58% of temp=0.7 completions hit the 2048-token limit). At temp=0.9, there is enough randomness that a pattern-breaking token appears within a few iterations → the loop collapses before consuming the full budget. This is effectively a phase transition: below some critical temperature the loop is self-sustaining; above it, the loop is unstable.
+
+Training and test are from the same distribution (hendrycks_math, same level distribution within ~4pp per level). Training was <1 epoch — no memorization opportunity. The gap is not a distribution or overfitting effect. **The training temperature of 0.9 was above the critical temperature for loop stability, making the collapse invisible to the reward signal.**
+
+**Implication for next run:** Training reward at temp=0.9 is blind to repetition degeneration. Either (a) periodically eval at greedy/temp=0.7 during training (early-stopping signal), (b) lower the rollout temperature, or (c) add an explicit repetition/format penalty that detects loops regardless of temperature.
+
 ### Eval script: train/eval format must match
 
 `sft_eval.py` must use `tokenizer.apply_chat_template()` — the same format SFTTrainer applied during training. Using a plain prompt causes total format mismatch and infinite loops. Stop token is `<|im_end|>` (151645) only — the checkpoint was saved with `eos_token=<|im_end|>`, so both lookups resolve to 151645 and deduplication gives a single stop token. This is correct.
@@ -284,7 +398,7 @@ See `PLAN.md` → Key Findings for full details.
 | `rerun_truncated.py` | ✅ Done | 244 truncated reruns; 160 newly correct |
 | `sft_train.py` | ✅ Done | SFT on 7,154 correct MATH traces |
 | `sft_eval.py` | ✅ Done | SFT/chat-template eval — vLLM + math-verify. Used for SFT checkpoints (both degenerate ~0%). Not for base/GRPO models (chat template format mismatch) |
-| `grpo_train.py` | 🔄 Running | GRPO from base model — step 3000+/7500, wandb ckz7jwil; see `PLAN.md` |
+| `grpo_train.py` | ✅ Done | GRPO from base model — completed step 7496, wandb 99hauae9. Best checkpoint: step 3000 (collapsed after) — see Key Findings |
 | `eval_comparison.py` | ⏳ Pending | See `PLAN.md` |
 
 ---
@@ -300,12 +414,16 @@ pip install 'math-verify[antlr4_13_2]'
 
 ### Sensitive config
 
-Create `~/.config/openclaw/secrets.env` (mode 600):
+For **pod training**: create `secrets.env` in the project root (gitignored, rsynced to pod by setup script):
 ```
 HF_TOKEN=hf_xxxx
-OPENROUTER_API_KEY=sk-or-xxxx
+WANDB_API_KEY=xxxx
+GITHUB_TOKEN=ghp_xxxx
 ```
-Get `HF_TOKEN` from https://huggingface.co/settings/tokens. `run_eval.sh` loads this automatically.
+
+For **local eval** (`run_eval.sh`): create `~/.config/openclaw/secrets.env` (mode 600) with `HF_TOKEN`. `run_eval.sh` loads this automatically.
+
+Get `HF_TOKEN` from https://huggingface.co/settings/tokens. See `docs/runpod.md` → "One-Command Setup" for full pod training prerequisites.
 
 ## Running eval
 
@@ -335,7 +453,7 @@ python scripts/math500_eval.py \
 Methodology is locked in script constants (`MAX_NEW_TOKENS=2048`, `N_SAMPLES=8`, `TEMPERATURE=0.7`) — not CLI args.
 Output auto-named: `outputs/{model_tag}_step{N}_math500_results.json`. Script errors loudly if step cannot be determined.
 
-Estimated runtime: ~10-15 min on L40S (1.7B model, 2k token limit, HF backend). vLLM is not needed — GRPO model outputs ~150-250 tokens (not the 8k thinking-mode chains that made HF slow for SFT eval).
+Estimated runtime: **~20 min on L40S with vLLM** (greedy 500 + sampling 500×8 in two `llm.generate()` calls). HF backend is much slower (~5h) due to batch-waits on variable-length outputs — use vLLM. `math500_eval.py` auto-detects vLLM and uses it if installed; install with `pip install vllm`.
 
 Install math-verify before running:
 ```bash
