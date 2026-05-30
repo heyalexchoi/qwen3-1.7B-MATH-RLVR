@@ -496,12 +496,46 @@ def main():
                     "pass8": pass8_samples,
                 })
 
+    # Provenance stamp: tie this result file to exact code + weights (see RUNS ledger).
+    def _provenance(args):
+        import subprocess, sys, hashlib, os, datetime
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        def _git(*a):
+            try:
+                return subprocess.check_output(["git", "-C", here, *a],
+                                               stderr=subprocess.DEVNULL).decode().strip()
+            except Exception:
+                return None
+        # Best-effort sha256 of the loaded weights when model is a local path.
+        weights_sha = None
+        try:
+            mp = args.model
+            if os.path.isdir(mp):
+                st = os.path.join(mp, "model.safetensors")
+                if os.path.exists(st):
+                    h = hashlib.sha256()
+                    with open(st, "rb") as f:
+                        for chunk in iter(lambda: f.read(1 << 20), b""):
+                            h.update(chunk)
+                    weights_sha = h.hexdigest()
+        except Exception:
+            pass
+        return {
+            "git_commit": _git("rev-parse", "HEAD"),
+            "git_describe": _git("describe", "--tags", "--always", "--dirty"),
+            "git_dirty": bool(_git("status", "--porcelain")),
+            "command": " ".join([sys.executable.split("/")[-1], *sys.argv]),
+            "weights_sha256": weights_sha,
+            "run_utc": datetime.datetime.utcnow().isoformat() + "Z",
+        }
+
     # Save raw generations — scoring is done by rescore_math500.py
     output = {
         "model": args.model,
         "hf_revision": revision_str,
         "hf_commit_hash": hf_commit_hash,
         "checkpoint_step": args.checkpoint_step,
+        "provenance": _provenance(args),
         "max_new_tokens": MAX_NEW_TOKENS,
         "n_samples_pass8": N_SAMPLES,
         "temperature_pass8": TEMPERATURE,
