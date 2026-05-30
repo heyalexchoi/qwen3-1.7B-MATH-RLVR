@@ -1,7 +1,7 @@
 # Qwen3-1.7B Math RLVR — POC Results
 
 **Written by:** Claude Opus 4.8 · **Date:** 2026-05-30
-**Status:** POC achieved (evidenced from artifacts); live-weights confirmation run in progress.
+**Status:** ✅ POC CONFIRMED — full-500 greedy reproduced **live** at 43.8% (vs 44.2% archived, within 2 problems), HF backend, pinned code, provenance-stamped.
 **Last updated:** 2026-05-30
 **Pinned code:** tag `eval-pin-2026-05-30`
 
@@ -78,7 +78,7 @@ pin the eval bug. Matrix on one A40 pod (`eval-pin-2026-05-30`):
 
 | # | weights | backend | revision | expected | result |
 |---|---------|---------|----------|----------|--------|
-| 1 | GRPO 3000 | HF generate | `63870ec` | ~44% | ✅ **8/15 greedy, coherent** (discriminator); loaded commit verified `63870ec…`. Full-500 greedy in progress. |
+| 1 | GRPO 3000 | HF generate | `63870ec` | ~44% | ✅ **full-500 greedy = 219/500 = 43.8%** (live, reproduces archived 44.2% within 2 problems). `outputs/grpo3000_greedy500_confirm.json` |
 | 2 | GRPO 3000 | vLLM | `63870ec` | distinguish bug | ⚠️ ABANDONED — vLLM 0.22 install bumped torch→2.11/cu130, EngineCore init fails (CUDA-driver mismatch, environmental). Not weights. |
 | 3 | GRPO final | vLLM | `main` (7496) | ~11% | ⚠️ same env break; not run |
 | 4 | Base | HF generate | — | ~35.8% | _pending_ |
