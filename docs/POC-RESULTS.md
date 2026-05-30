@@ -66,10 +66,13 @@ in the training loop + early-stop / KL control to catch the peak.
 
 SFT (`heyalexchoi/qwen3-1.7b-math-sft`) trained cleanly (train loss 0.48, token acc 84%).
 Its eval was plagued by config bugs (few-shot prompt vs chat-template mismatch → repetition
-loops); the "~0% degenerate" note was an eval artifact — logs after the fix show the SFT
-model producing correct solutions. **No trustworthy SFT MATH-500 number was ever cleanly
-captured.** Irrelevant to the RLVR POC because GRPO trained from base, not from SFT.
-(An SFT eval is included in the confirmation run to finally get a clean number.)
+loops); the "~0% degenerate" note was an eval artifact. **Confirmed live 2026-05-30:** the SFT
+model produces coherent `<think>` chain-of-thought (verified on the polar-coordinates problem) —
+NOT degenerate. It is a *thinking* model with long CoT, so a greedy@2048-token eval truncates it
+before `\boxed{}` (unfairly low). **A fair SFT number still needs sampling@temp0.6 + ~8192 tokens**
+— deferred to a deliberate v2 experiment. Irrelevant to the RLVR POC because GRPO trained from
+base, not from SFT. (Contrast: the GRPO model uses concise few-shot, non-thinking output, which is
+why it evals cleanly at greedy@2048.)
 
 ## Confirmation run (in progress)
 
@@ -82,7 +85,7 @@ pin the eval bug. Matrix on one A40 pod (`eval-pin-2026-05-30`):
 | 2 | GRPO 3000 | vLLM | `63870ec` | distinguish bug | ⚠️ ABANDONED — vLLM 0.22 install bumped torch→2.11/cu130, EngineCore init fails (CUDA-driver mismatch, environmental). Not weights. |
 | 3 | GRPO final | vLLM | `main` (7496) | ~11% | ⚠️ same env break; not run |
 | 4 | Base | HF generate | — | ~35.8% | _pending_ |
-| 5 | SFT | HF generate (chat template) | — | (first clean SFT number) | _pending — use `sft_eval.py`, NOT few-shot_ |
+| 5 | SFT | HF generate (chat template) | — | (first clean SFT number) | ⚠️ DEFERRED. Live check confirms SFT is **coherent** (correct `<think>` CoT), NOT degenerate. But it's a *thinking* model: greedy@2048 truncates before `\boxed{}` (unfair). Fair eval needs sampling@temp0.6 + ~8192 tokens → do as v2 experiment. |
 
 **Conclusion already reached (discriminator + artifact re-score + SHA identity all agree):** the
 step-3000 weights are good and the 44% is real and reproduces live. The vLLM repro was only to
@@ -123,18 +126,16 @@ keep-best; consider cosine LR decay / repetition penalty. Peak was ~3000.
 2. **SFT → GRPO** (cold-start then RL) v2 with small KL + early-stopping. Strongest open
    recipe (R1-style); likely beats the 44.2% zero-RL result without collapsing.
 
-## ⚠️ LIVE OPERATIONAL STATE (2026-05-30) — read on resume
+## Session close-out (2026-05-30) — DONE
 
-- **ACTIVE POD (billing!):** `p44nx27xkitomr` — A40, $0.44/hr, SSH `root@69.30.85.75 -p 22144`,
-  key `~/.runpod/ssh/RunPod-Key-Go`. **TEAR DOWN when done:**
-  `runpodctl remove pod p44nx27xkitomr` (verify results pulled first).
-- **In flight:** greedy-only full-500 reproduction (`greedy500.py` on pod, NOT committed;
-  copy at `/tmp/greedy500.py` locally). Output → `outputs/grpo3000_greedy500_confirm.json` on pod.
-  Expected greedy pass@1 ≈ 0.44.
-- **Pod env:** torch 2.6.0+cu124, transformers 5.5.3 (faithful to training). vLLM NOT usable
-  (0.22 needs newer CUDA driver). HF backend only.
-- **Queued (this session):** (a) pull + record full-500 number; (b) SFT eval via `sft_eval.py`;
-  (c) rewrite README + PLAN (still carry the disproven "collapsed/lost/degenerate" narrative —
-  see README lines ~19-24,36-39) and mark `docs/eval-discrepancy-investigation.md` RESOLVED →
-  point to this file; (d) `runpodctl remove pod p44nx27xkitomr`.
-- Pinned eval code: tag `eval-pin-2026-05-30`. Provenance now stamped by `math500_eval.py`.
+- ✅ Full-500 greedy reproduced live = 43.8% (`outputs/grpo3000_greedy500_confirm.json`, pulled & durable).
+- ✅ Pod `p44nx27xkitomr` **torn down** (no active pods).
+- ✅ Docs cleaned: README/PLAN banners + corrected tables; `eval-discrepancy-investigation.md` RESOLVED.
+- ✅ SFT confirmed coherent (not degenerate); fair SFT eval deferred to v2 (needs sampling + ~8192 tokens).
+- Pinned eval code: tag `eval-pin-2026-05-30`. Provenance stamped by `math500_eval.py`; ledger `RUNS.jsonl`.
+- **Reproduce headline:** rent A40, `pip install torch==2.6.0 transformers==5.5.3 datasets math-verify`,
+  then `python greedy500_confirm.py` (or `math500_eval.py --model heyalexchoi/qwen3-1.7b-math-grpo --revision 63870ec239b2 --checkpoint_step 3000`). Env note: vLLM 0.22 needs a newer CUDA driver — use HF backend.
+
+### Next experiments (v2)
+1. Fair SFT eval (sampling@0.6, ~8192 tokens).
+2. SFT→GRPO with small KL (`beta`≈0.001–0.01) + greedy-eval-in-loop + early-stop / keep-best.
