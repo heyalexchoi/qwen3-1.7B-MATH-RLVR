@@ -1,5 +1,6 @@
 # Qwen3-1.7B Math RLVR — POC Results
 
+**Written by:** Claude Opus 4.8 · **Date:** 2026-05-30
 **Status:** POC achieved (evidenced from artifacts); live-weights confirmation run in progress.
 **Last updated:** 2026-05-30
 **Pinned code:** tag `eval-pin-2026-05-30`
