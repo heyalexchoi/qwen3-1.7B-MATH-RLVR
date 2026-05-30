@@ -78,11 +78,17 @@ pin the eval bug. Matrix on one A40 pod (`eval-pin-2026-05-30`):
 
 | # | weights | backend | revision | expected | result |
 |---|---------|---------|----------|----------|--------|
-| 1 | GRPO 3000 | HF generate | `63870ec` | ~44% | _pending_ |
-| 2 | GRPO 3000 | vLLM | `63870ec` | 44% → revision-bug was cause; 11% → vLLM backend is cause | _pending_ |
-| 3 | GRPO final | vLLM | `main` (7496) | ~11% (confirms binary-search loaded `main`) | _pending_ |
+| 1 | GRPO 3000 | HF generate | `63870ec` | ~44% | ✅ **8/15 greedy, coherent** (discriminator); loaded commit verified `63870ec…`. Full-500 greedy in progress. |
+| 2 | GRPO 3000 | vLLM | `63870ec` | distinguish bug | ⚠️ ABANDONED — vLLM 0.22 install bumped torch→2.11/cu130, EngineCore init fails (CUDA-driver mismatch, environmental). Not weights. |
+| 3 | GRPO final | vLLM | `main` (7496) | ~11% | ⚠️ same env break; not run |
 | 4 | Base | HF generate | — | ~35.8% | _pending_ |
-| 5 | SFT | HF generate | — | (first clean SFT number) | _pending_ |
+| 5 | SFT | HF generate (chat template) | — | (first clean SFT number) | _pending — use `sft_eval.py`, NOT few-shot_ |
+
+**Conclusion already reached (discriminator + artifact re-score + SHA identity all agree):** the
+step-3000 weights are good and the 44% is real and reproduces live. The vLLM repro was only to
+distinguish *which* eval bug caused the 11%; the uniform-~11%-across-all-steps fingerprint already
+points to revision-pinning (every binary-search eval loaded `main`/step-7496). Not worth chasing
+the vLLM env break.
 
 ## Guardrails adopted (post-mortem)
 
@@ -92,3 +98,43 @@ pin the eval bug. Matrix on one A40 pod (`eval-pin-2026-05-30`):
 3. **Eval canaries** — assert loaded-weights sha/revision == intended; difficulty-gradient
    sanity check; anchor-checkpoint regression check. _(planned)_
 4. **Checkpoint durability** — rsync + verify sha before any teardown; never delegate teardown.
+
+## Why GRPO collapsed *late* (the one real degeneration) — hyperparameter diagnosis
+
+The step-7496 collapse is real (not an eval bug). `configs/grpo_config.yaml` shows an
+"improve-then-collapse" recipe:
+
+| Setting | Value | Implication |
+|---|---|---|
+| `beta` (KL) | **0.0** | No anchor to base policy → drifts into degenerate high-reward modes over many steps. Biggest risk. |
+| `loss_type` / `epsilon_high` | `dapo` / 0.28 | Asymmetric clipping pushes *further* from base → amplifies drift. |
+| `lr_scheduler_type` | `constant_with_warmup` | No decay → keeps drifting at full LR late. |
+| `temperature` (rollouts) | 0.9 | High temp makes *training reward* look healthy while *greedy* degenerates — masks collapse. |
+| epochs / early-stop | 1 epoch ≈ 7496 steps, **none** | Trained straight past the ~step-3000 peak. |
+| `save_total_limit` | **1** | Only latest local ckpt kept — why the good step-3000 nearly got lost. |
+
+**Fix for v2:** add small KL (`beta` ≈ 0.001–0.01) OR greedy-eval-in-loop + early-stop +
+keep-best; consider cosine LR decay / repetition penalty. Peak was ~3000.
+
+## Recommended next experiments
+
+1. Properly eval the existing SFT checkpoint (`heyalexchoi/qwen3-1.7b-math-sft`) with
+   `sft_eval.py` (chat template) → first trustworthy SFT number.
+2. **SFT → GRPO** (cold-start then RL) v2 with small KL + early-stopping. Strongest open
+   recipe (R1-style); likely beats the 44.2% zero-RL result without collapsing.
+
+## ⚠️ LIVE OPERATIONAL STATE (2026-05-30) — read on resume
+
+- **ACTIVE POD (billing!):** `p44nx27xkitomr` — A40, $0.44/hr, SSH `root@69.30.85.75 -p 22144`,
+  key `~/.runpod/ssh/RunPod-Key-Go`. **TEAR DOWN when done:**
+  `runpodctl remove pod p44nx27xkitomr` (verify results pulled first).
+- **In flight:** greedy-only full-500 reproduction (`greedy500.py` on pod, NOT committed;
+  copy at `/tmp/greedy500.py` locally). Output → `outputs/grpo3000_greedy500_confirm.json` on pod.
+  Expected greedy pass@1 ≈ 0.44.
+- **Pod env:** torch 2.6.0+cu124, transformers 5.5.3 (faithful to training). vLLM NOT usable
+  (0.22 needs newer CUDA driver). HF backend only.
+- **Queued (this session):** (a) pull + record full-500 number; (b) SFT eval via `sft_eval.py`;
+  (c) rewrite README + PLAN (still carry the disproven "collapsed/lost/degenerate" narrative —
+  see README lines ~19-24,36-39) and mark `docs/eval-discrepancy-investigation.md` RESOLVED →
+  point to this file; (d) `runpodctl remove pod p44nx27xkitomr`.
+- Pinned eval code: tag `eval-pin-2026-05-30`. Provenance now stamped by `math500_eval.py`.
