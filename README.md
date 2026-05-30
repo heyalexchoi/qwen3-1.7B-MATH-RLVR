@@ -5,6 +5,7 @@ Demonstrating distillation + RLVR on math reasoning with Qwen3-1.7B-Base.
 → **Full pipeline plan, findings, and decisions:** [`PLAN.md`](PLAN.md)
 → **Active run / current phase:** [`PLAN.md`](PLAN.md) → Current Run
 → **Pod setup, SSH, launch commands, pre-removal checklist:** [`docs/runpod.md`](docs/runpod.md) — read this before any pod operation
+→ **Eval discrepancy investigation (44.2% vs 11.2%):** [`docs/eval-discrepancy-investigation.md`](docs/eval-discrepancy-investigation.md) — open, not yet resolved
 → **Session log:** [`memory/math-rlvr.md`](../memory/math-rlvr.md)
 
 ---
@@ -245,7 +246,7 @@ Binary search across checkpoints confirmed: every HF Hub checkpoint (steps 2500,
 
 #### HF Hub divergence — original step-3000 result cannot be reproduced
 
-The original step-3000 eval (44.20%) loaded from a **local checkpoint** (`outputs/grpo_checkpoint`, wandb run `ckz7jwil`). Re-eval using HF Hub commit `63870ec239b2` (auto-resolved as step 3000 from commit history) yields 11.2% — collapsed like every other step. The local checkpoint and HF Hub commit do not match. The 44.2% result may be from a different training run or a checkpoint that was never correctly pushed to HF Hub. **Do not rely on the 44.2% result without first recovering and verifying the original local checkpoint.**
+The original step-3000 eval (44.20%) loaded from a **local checkpoint** (`outputs/grpo_checkpoint`, wandb run `ckz7jwil`) using the HF `generate()` backend. Re-eval using HF Hub commit `63870ec239b2` (auto-resolved as step 3000 from commit history) via **vLLM** yields 11.2% — collapsed like every other step. Two hypotheses are under investigation: (1) vLLM behaves differently from HF generate on these weights (e.g., chat template contamination), or (2) the pod's local checkpoint was genuinely different from what's on HF Hub. **See [`docs/eval-discrepancy-investigation.md`](docs/eval-discrepancy-investigation.md) for full analysis and next steps.** Do not rely on the 44.2% result until this is resolved.
 
 #### Observed pathology
 

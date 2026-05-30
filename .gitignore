@@ -24,8 +24,13 @@ outputs/
 # Weights & Biases
 wandb/
 
-# Environment variables
+# Environment variables / secrets — never commit
 .env
+secrets.env
+
+# Run artifacts / local
+logs/
+.claude/
 
 # OS
 .DS_Store
