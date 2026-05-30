@@ -1,11 +1,19 @@
 # Qwen3-1.7B Math RLVR
 
-Demonstrating distillation + RLVR on math reasoning with Qwen3-1.7B-Base.
+Demonstrating RLVR (GRPO from base) on math reasoning with Qwen3-1.7B-Base.
 
-→ **Full pipeline plan, findings, and decisions:** [`PLAN.md`](PLAN.md)
-→ **Active run / current phase:** [`PLAN.md`](PLAN.md) → Current Run
+> ## ✅ POC RESULT — see [`docs/POC-RESULTS.md`](docs/POC-RESULTS.md) (authoritative)
+> **GRPO (from base) improved MATH-500 greedy pass@1 from 35.8% → ~44%** (step-3000;
+> reproduced live at 43.8%, 2026-05-30, pinned code). The earlier "all checkpoints
+> collapsed / good model lost" conclusion was an **eval bug** (revision-pinning loaded the
+> collapsed final `main` checkpoint), NOT a training failure. The SFT "~0% degenerate"
+> finding was likewise an **eval-harness bug** (few-shot prompt on a chat-trained model).
+> **Sections below this banner predate that correction — trust `POC-RESULTS.md` where they conflict.**
+
+→ **Authoritative results + diagnosis + guardrails:** [`docs/POC-RESULTS.md`](docs/POC-RESULTS.md)
+→ **Run ledger (append-only):** [`RUNS.jsonl`](RUNS.jsonl)
 → **Pod setup, SSH, launch commands, pre-removal checklist:** [`docs/runpod.md`](docs/runpod.md) — read this before any pod operation
-→ **Eval discrepancy investigation (44.2% vs 11.2%):** [`docs/eval-discrepancy-investigation.md`](docs/eval-discrepancy-investigation.md) — open, not yet resolved
+→ **Eval discrepancy investigation:** [`docs/eval-discrepancy-investigation.md`](docs/eval-discrepancy-investigation.md) — RESOLVED (see POC-RESULTS.md)
 → **Session log:** [`memory/math-rlvr.md`](../memory/math-rlvr.md)
 
 ---
@@ -16,14 +24,12 @@ Demonstrating distillation + RLVR on math reasoning with Qwen3-1.7B-Base.
 [0] Data prep (GSM8K + MATH)                           ✅
 [1] Base eval — GSM8K + MATH-500                       ✅  35.8% pass@1 / 65.0% pass@8 (math-verify)
 [2] Generate Qwen3-32B traces                          ✅  7,154 correct traces (95.51%)
-[3] SFT on correct traces                              ✅  (degenerate — see Key Findings)
-[3a] SFT eval — MATH-500                               ✅  ~0% — both checkpoints degenerate
-[4] GRPO from base model                               ✅  DONE (step 7496, wandb 99hauae9) — see Key Findings
-[4a] GRPO eval — checkpoint-3000 (local)               ✅  44.20% greedy / 71.40% pass@8 / 36.83% inferred (⚠️ local only — see Key Findings)
-[4b] GRPO eval — checkpoint-5000 (HF Hub)             ✅  11.60% greedy / 30.80% pass@8 / 9.83% inferred (collapsed — see Key Findings)
-[4c] Binary search: steps 2500/3500/4000/3000(HF)     ✅  All collapsed ~9-11% — HF Hub has no good checkpoint (see Key Findings)
-[4d] Train/eval reward gap investigation               ✅  No logging artifact — see Key Findings
-[5] Retrain GRPO with collapse mitigations             ⏳  See Key Findings → recommendation
+[3] SFT on correct traces                              ✅  clean train (loss 0.48, tok-acc 84%)
+[3a] SFT eval — MATH-500                               ⚠️  earlier "~0%" was an EVAL BUG (few-shot prompt vs chat template); clean number pending
+[4] GRPO from base model                               ✅  DONE (step 7496, wandb ckz7jwil). Peak ~step 3000; genuine late collapse by ~7496.
+[4a] GRPO eval — checkpoint-3000                        ✅  43.8% greedy (reproduced live 2026-05-30; archived 44.2%) — REAL, see POC-RESULTS.md
+[4b] "collapsed ~11%" re-evals                          ❌  EVAL BUG, not collapse — revision-pinning loaded `main`/step-7496. Disregard.
+[5] v2: SFT→GRPO with small KL + early-stop            ⏳  recommended next (see POC-RESULTS.md)
 ```
 
 ---
@@ -32,11 +38,10 @@ Demonstrating distillation + RLVR on math reasoning with Qwen3-1.7B-Base.
 
 | Phase | MATH-500 pass@1 | pass@8 | Notes |
 |-------|----------------|--------|-------|
-| Base | **24.55%** (inferred c/n) / 35.8% (greedy) ✅ | **65.0%** ✅ | math-verify; `outputs/baseline_math500_mv_rescored.json` |
-| Post-SFT | ~0% | — | Degenerate — both 1-epoch and 3-epoch checkpoints (see Key Findings) |
-| GRPO step-3000 (local ckpt) | **36.83%** (inferred c/n) / **44.20%** (greedy) ⚠️ | **71.40%** ⚠️ | Local checkpoint only — **cannot reproduce from HF Hub** (see Key Findings → HF Hub divergence) |
-| GRPO step-3000 (HF Hub `63870ec`) | 9.22% (inferred) / 11.2% (greedy) ❌ | 26.0% ❌ | HF Hub re-eval — collapsed like all other steps |
-| GRPO steps 2500/3500/4000/5000 (HF Hub) | ~9–10% (inferred) / ~11% (greedy) ❌ | ~29–31% ❌ | All collapsed — repetition degeneration (see Key Findings) |
+| Base | 35.8% (greedy) ✅ | **65.0%** ✅ | math-verify; `outputs/baseline_math500_mv_rescored.json` |
+| Post-SFT | (earlier "~0%" was an eval bug) | — | SFT trained clean; clean greedy number pending — see POC-RESULTS.md |
+| **GRPO step-3000** | **43.8% (greedy), reproduced live** ✅ | **71.40%** ✅ | archived 44.2%; reproduced 2026-05-30 (HF backend, rev `63870ec`, pinned code) — `outputs/grpo3000_greedy500_confirm.json` |
+| ~~"collapsed" HF Hub re-evals (~11%)~~ | ❌ eval bug | ❌ | Revision-pinning loaded `main`/step-7496. NOT collapse of steps 2500–5000. Disregard. |
 
 ### Baseline by level (math-verify)
 

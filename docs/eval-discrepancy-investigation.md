@@ -1,7 +1,18 @@
 # Eval Discrepancy Investigation
 
-**Status:** Open — root cause not yet determined  
-**Date:** 2026-04-13  
+> ## ✅ RESOLVED (2026-05-30) — see [`POC-RESULTS.md`](POC-RESULTS.md)
+> **Hypothesis 1 (eval infrastructure) was correct; Hypothesis 2 (different weights) was wrong.**
+> On 2026-05-30, HF Hub step-3000 (`63870ec`) was re-evaluated with the **HF `generate()` backend**
+> and **reproduced 43.8% greedy live** (full 500; archived 44.2% within 2 problems), with coherent
+> output. So the weights were always good. The 11.2% "collapse" came from the **vLLM-path re-eval**,
+> and the uniform ~11% across *every* binary-search step is the fingerprint of **revision-pinning
+> loading the collapsed final `main`/step-7496 checkpoint** instead of the requested step
+> (the `--checkpoint_step` without `--revision` footgun). Weights are byte-identical (SHA256 verified)
+> across local disk and HF Hub. The good checkpoint was never lost. The text below is the original
+> 2026-04-13 investigation, kept for the record.
+
+**Status:** ✅ RESOLVED — eval-infrastructure artifact (see banner above)
+**Date:** 2026-04-13 (resolved 2026-05-30)
 **Problem:** GRPO step-3000 evaluated at 44.2% greedy from a local checkpoint on the H100 training pod, but re-evaluation of HF Hub step-3000 (commit `63870ec239b2`) via vLLM yields 11.2% greedy — collapsed repetition output.
 
 ---

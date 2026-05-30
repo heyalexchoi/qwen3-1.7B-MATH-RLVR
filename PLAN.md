@@ -1,5 +1,9 @@
 # PLAN.md — Qwen3-1.7B Math RLVR
 
+> ⚠️ **Outdated in parts (2026-05-30).** The binary-search / "all collapsed" plan below was built on a
+> wrong premise (an eval bug, not real collapse). **Authoritative status + results: [`docs/POC-RESULTS.md`](docs/POC-RESULTS.md).**
+> POC is CONFIRMED: GRPO step-3000 = 43.8% greedy (reproduced live). Next: SFT→GRPO v2 with KL + early-stop.
+
 Source of truth for plan, status, and active run details.
 For session history and decisions, see `memory/math-rlvr.md`.
 
