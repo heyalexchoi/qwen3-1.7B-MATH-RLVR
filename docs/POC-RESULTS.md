@@ -62,17 +62,84 @@ uniform ~9–11% and concluded "all collapsed, good model lost." That conclusion
 collapses into repetition by ~step 7496. The peak is ~step 3000. Lesson: run greedy eval
 in the training loop + early-stop / KL control to catch the peak.
 
-## SFT branch (separate; not part of this POC)
+## SFT branch (separate; not part of this POC) — status: UNRESOLVED
 
 SFT (`heyalexchoi/qwen3-1.7b-math-sft`) trained cleanly (train loss 0.48, token acc 84%).
-Its eval was plagued by config bugs (few-shot prompt vs chat-template mismatch → repetition
-loops); the "~0% degenerate" note was an eval artifact. **Confirmed live 2026-05-30:** the SFT
-model produces coherent `<think>` chain-of-thought (verified on the polar-coordinates problem) —
-NOT degenerate. It is a *thinking* model with long CoT, so a greedy@2048-token eval truncates it
-before `\boxed{}` (unfairly low). **A fair SFT number still needs sampling@temp0.6 + ~8192 tokens**
-— deferred to a deliberate v2 experiment. Irrelevant to the RLVR POC because GRPO trained from
-base, not from SFT. (Contrast: the GRPO model uses concise few-shot, non-thinking output, which is
-why it evals cleanly at greedy@2048.)
+
+**Correction (2026-05-31).** An earlier version of this section claimed the SFT "~0% degenerate"
+finding was an eval-format artifact (few-shot prompt vs chat template) and that the model was
+"confirmed coherent / NOT degenerate." That claim was overstated and is retracted:
+
+- The 2026-04-10 SFT eval logs (`logs/sft_eval_20260410_*.log`) show the prompt was the **correct
+  chat template** (`<|im_start|>user\n…<|im_end|>\n<|im_start|>assistant\n`). So the documented
+  degeneration (~0% usable across 264 samples; runs to the 8192-token limit; repetition loops —
+  see README "SFT checkpoints: degenerate") was observed **with the right format**. It is *not*
+  explained away as a format bug.
+- The 2026-05-30 "confirmed coherent" check was a **single** live sample that showed a coherent
+  `<think>` *opening* before I aborted the run (>1hr ETA). There is no evidence it ever reached a
+  valid `\boxed{}`. The README's own description is "both checkpoints open `<think>` and begin
+  coherent reasoning *before degenerating*" — so that one sample **confirms** the degeneration
+  pattern, it does not refute it.
+
+**Honest status:** the most likely root cause (per the README capacity analysis) is that a 1.7B
+cannot sustain 32B-length thinking traces (teacher median 3.3k / p90 10k tokens) → it leaves its
+learned distribution and collapses into repetition. A fair eval (sampling@temp0.6 + ~8192 tokens)
+*might* still recover some accuracy, but the prior multi-sample evidence points to a genuine
+problem, not merely an artifact. **One fair SFT eval decides this — and decides the whole v2
+design** (see "SFT vs RLVR sequencing" below). Irrelevant to the *RLVR POC headline* either way,
+because GRPO trained from base, not from SFT.
+
+## Reference points — where could a 1.7B get on MATH? (added 2026-05-31)
+
+Useful to know the ceiling. Caveats matter a lot here:
+
+| Source | Benchmark | Score | Comparable to our 35.8% / 43.8%? |
+|--------|-----------|------:|----------------------------------|
+| Qwen3 Tech Report, Table 8 — **Qwen3-1.7B-Base** | MATH (full, ~5000, 4-shot, Qwen harness) | **43.5** | **No.** Different test set (full MATH vs the 500 subset), different answer extraction/harness. Our base = 35.8% greedy on MATH-500 + math-verify + few-shot. The 43.5-vs-43.8 near-match is a **coincidence of two different metrics** — do *not* read it as "GRPO reached the official base number." |
+| Qwen3-1.7B (post-trained, **non-thinking**) | MATH-500 | not published per-model in the report | would be the *fair* instruct ceiling for our setup — must run it |
+| Qwen3-1.7B (post-trained, **thinking**) | MATH-500 | not published per-model; thinking small models score much higher | **No.** Thinking mode = long CoT, sampling@0.6, big token budget. Apples-to-oranges vs our non-thinking concise greedy@2048. |
+
+**The only rigorous reference point is one we'd have to measure:** run `Qwen/Qwen3-1.7B` (the instruct model) on MATH-500 **in its native chat format** — once non-thinking, once thinking — through our math-verify scorer. Forcing an instruct model through our base few-shot harness would understate it badly, so this needs `sft_eval.py`-style chat prompting, not `math500_eval.py`. ~30–60 min on one A40. **Proposed, not yet run.** That gives the honest "how far is 43.8% from the post-trained ceiling" number.
+
+(Sources: [Qwen3 Technical Report](https://arxiv.org/abs/2505.09388), Table 8; [Qwen3-1.7B model card](https://huggingface.co/Qwen/Qwen3-1.7B); [Qwen3 blog](https://qwenlm.github.io/blog/qwen3/).)
+
+## SFT vs RLVR sequencing (v2 design) — added 2026-05-31
+
+The standard "best" recipe is **SFT cold-start → RL** (DeepSeek-R1 style): SFT instills a reasoning
+format and raises the starting policy, then RL (GRPO) sharpens it with verifiable rewards. So
+"SFT first, then RLVR" is right *in principle*.
+
+**But it is strictly conditional on a non-degenerate SFT**, and that is exactly what we do not have:
+
+- A degenerate SFT (~0% usable, what we observed) is a **dead end for GRPO** — GRPO needs nonzero
+  rollout accuracy to produce a reward signal. That is precisely why the prior pivot to
+  **GRPO-from-base was the correct call** at the time (base already scores 24.55% inferred / 35.8%
+  greedy — plenty of signal).
+- So the open question is not "SFT or not" in the abstract; it's **"can we produce a stable,
+  length-appropriate SFT for a 1.7B?"** The prior SFT failed because it imitated 32B-length traces.
+
+**Cheapest decisive next step:** the fair SFT eval. One number settles the branch:
+- If fair-eval SFT **> base** and stable → SFT→GRPO is well-motivated; do it (with small KL +
+  early-stop, per the collapse diagnosis).
+- If fair-eval SFT **≤ base** or still degenerate → SFT-first is not worth it for this 1.7B;
+  GRPO-from-base stands as the POC and the lift comes from better RL, not cold-start.
+
+**Better SFT data idea — self-distillation.** The README already (correctly) rejected
+"short-traces-only" (biases toward easy problems, low ceiling). A cleaner fix that sidesteps the
+length problem entirely: SFT on the model's **own** correct rollouts (base or GRPO-step-3000),
+optionally lightly cleaned. These are *by construction* within the 1.7B's length/style capacity,
+so they don't trigger the 32B-length collapse — while still teaching a consistent
+reason-then-`\boxed{}` format. This is the recommended SFT-data path for v2 if we pursue
+SFT→GRPO.
+
+**Format choice for v2 (chat vs completion).** Keep the **completion / few-shot, no-chat-template**
+format for the math POC line: it's native to the base model, it's what GRPO already works in, it
+evals cleanly at greedy, and it avoids the chat-template contamination footgun that caused real
+pain. You do **not** need chat format (or `<think>`) to teach reasoning — consistent format +
+length-appropriate CoT is enough. Adopt chat format later, **as the deliberate subject of the
+agentic phase**, not as a complication bolted onto the math POC. (A hidden lesson from the mess:
+the pipeline mixed two format universes — base/GRPO in completion format, SFT in chat+thinking
+format — which is part of why comparisons and evals broke. Hold ONE format constant end-to-end.)
 
 ## Confirmation run (in progress)
 
@@ -85,7 +152,7 @@ pin the eval bug. Matrix on one A40 pod (`eval-pin-2026-05-30`):
 | 2 | GRPO 3000 | vLLM | `63870ec` | distinguish bug | ⚠️ ABANDONED — vLLM 0.22 install bumped torch→2.11/cu130, EngineCore init fails (CUDA-driver mismatch, environmental). Not weights. |
 | 3 | GRPO final | vLLM | `main` (7496) | ~11% | ⚠️ same env break; not run |
 | 4 | Base | HF generate | — | ~35.8% | _pending_ |
-| 5 | SFT | HF generate (chat template) | — | (first clean SFT number) | ⚠️ DEFERRED. Live check confirms SFT is **coherent** (correct `<think>` CoT), NOT degenerate. But it's a *thinking* model: greedy@2048 truncates before `\boxed{}` (unfair). Fair eval needs sampling@temp0.6 + ~8192 tokens → do as v2 experiment. |
+| 5 | SFT | HF generate (chat template) | — | (first clean SFT number) | ⚠️ DEFERRED & UNRESOLVED. The 2026-04-10 eval used the **correct** chat template and still degenerated (~0%, repetition). The 2026-05-30 "coherent" note was a single sample (coherent opening, no confirmed `\boxed{}`) and is retracted as evidence. Fair eval (sampling@0.6 + ~8192 tokens) still needed → v2. |
 
 **Conclusion already reached (discriminator + artifact re-score + SHA identity all agree):** the
 step-3000 weights are good and the 44% is real and reproduces live. The vLLM repro was only to
@@ -131,7 +198,7 @@ keep-best; consider cosine LR decay / repetition penalty. Peak was ~3000.
 - ✅ Full-500 greedy reproduced live = 43.8% (`outputs/grpo3000_greedy500_confirm.json`, pulled & durable).
 - ✅ Pod `p44nx27xkitomr` **torn down** (no active pods).
 - ✅ Docs cleaned: README/PLAN banners + corrected tables; `eval-discrepancy-investigation.md` RESOLVED.
-- ✅ SFT confirmed coherent (not degenerate); fair SFT eval deferred to v2 (needs sampling + ~8192 tokens).
+- ⚠️ SFT status UNRESOLVED (prior "coherent / not degenerate" note retracted 2026-05-31 — degeneration was seen with the *correct* chat-template format; likely a real capacity/length problem). Fair SFT eval (sampling@0.6 + ~8192 tokens) deferred to v2 and is the gating experiment for v2 design.
 - Pinned eval code: tag `eval-pin-2026-05-30`. Provenance stamped by `math500_eval.py`; ledger `RUNS.jsonl`.
 - **Reproduce headline:** rent A40, `pip install torch==2.6.0 transformers==5.5.3 datasets math-verify`,
   then `python greedy500_confirm.py` (or `math500_eval.py --model heyalexchoi/qwen3-1.7b-math-grpo --revision 63870ec239b2 --checkpoint_step 3000`). Env note: vLLM 0.22 needs a newer CUDA driver — use HF backend.
