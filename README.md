@@ -8,13 +8,14 @@ Demonstrating RLVR (GRPO from base) on math reasoning with Qwen3-1.7B-Base.
 > collapsed / good model lost" conclusion was an **eval bug** (revision-pinning loaded the
 > collapsed final `main` checkpoint), NOT a training failure.
 >
-> **Correction (2026-05-31):** an earlier note here claimed the SFT "~0% degenerate" finding
-> was *also* just an eval-format bug. That was wrong. The 2026-04-10 SFT eval logs confirm the
-> eval used the **correct chat template** (`<|im_start|>user\n…<|im_end|>\n<|im_start|>assistant\n`),
-> and the model still collapsed into repetition before reaching `\boxed{}`. That is a real
-> capacity/length problem (a 1.7B cannot sustain 32B-length thinking traces), **not** an eval
-> artifact. SFT status is **UNRESOLVED** — a fair eval (sampling@0.6, ~8k tokens) is still pending.
-> **Sections below this banner predate the eval-bug correction — trust `POC-RESULTS.md` where they conflict.**
+> **SFT correction (2026-05-31):** the "SFT ~0% degenerate / capacity wall" conclusion below is a
+> **misdiagnosis** and is superseded by `POC-RESULTS.md`. The 2026-04-10 logs show the **final** SFT
+> checkpoint, run correctly (chat template, **sampling temp=0.6**, 8192 tok), solves problems normally
+> (26/48 correct over the 6 problems the run reached before the pod died). The "~0%" came from
+> **greedy** decoding — which this very README warns is banned for Qwen3 thinking mode (it loops). So
+> SFT was **not** broken; "SFT failed → we pivoted to zero-RL" was a greedy-eval artifact. A full-500
+> fair number (sampling→c/n) is still pending. The GRPO-from-base POC headline is unaffected.
+> **Sections below this banner predate these corrections — trust `POC-RESULTS.md` where they conflict.**
 
 → **Authoritative results + diagnosis + guardrails:** [`docs/POC-RESULTS.md`](docs/POC-RESULTS.md)
 → **Run ledger (append-only):** [`RUNS.jsonl`](RUNS.jsonl)
@@ -31,7 +32,7 @@ Demonstrating RLVR (GRPO from base) on math reasoning with Qwen3-1.7B-Base.
 [1] Base eval — GSM8K + MATH-500                       ✅  35.8% pass@1 / 65.0% pass@8 (math-verify)
 [2] Generate Qwen3-32B traces                          ✅  7,154 correct traces (95.51%)
 [3] SFT on correct traces                              ✅  clean train (loss 0.48, tok-acc 84%)
-[3a] SFT eval — MATH-500                               ⚠️  ~0% degeneration seen WITH correct chat template (not a format bug); likely capacity/length. UNRESOLVED — fair eval (sampling@0.6, ~8k tok) pending
+[3a] SFT eval — MATH-500                               ⚠️  final ckpt NOT degenerate under sampling (26/48 over 6 probs); "~0%" was a GREEDY artifact. Full-500 fair number (sampling→c/n) pending
 [4] GRPO from base model                               ✅  DONE (step 7496, wandb ckz7jwil). Peak ~step 3000; genuine late collapse by ~7496.
 [4a] GRPO eval — checkpoint-3000                        ✅  43.8% greedy (reproduced live 2026-05-30; archived 44.2%) — REAL, see POC-RESULTS.md
 [4b] "collapsed ~11%" re-evals                          ❌  EVAL BUG, not collapse — revision-pinning loaded `main`/step-7496. Disregard.
@@ -45,7 +46,7 @@ Demonstrating RLVR (GRPO from base) on math reasoning with Qwen3-1.7B-Base.
 | Phase | MATH-500 pass@1 | pass@8 | Notes |
 |-------|----------------|--------|-------|
 | Base | 35.8% (greedy) ✅ | **65.0%** ✅ | math-verify; `outputs/baseline_math500_mv_rescored.json` |
-| Post-SFT | UNRESOLVED (~0% degeneration, correct chat format) | — | SFT trained clean (loss 0.48); ~0% degeneration was NOT a format bug — likely capacity/length. Fair eval pending — see POC-RESULTS.md |
+| Post-SFT | full number pending; NOT degenerate | — | Final ckpt works under sampling (26/48 over 6 probs, temp=0.6); "~0%" was a greedy artifact. Compare c/n-to-c/n (base 24.55 / GRPO 36.83). See POC-RESULTS.md |
 | **GRPO step-3000** | **43.8% (greedy), reproduced live** ✅ | **71.40%** ✅ | archived 44.2%; reproduced 2026-05-30 (HF backend, rev `63870ec`, pinned code) — `outputs/grpo3000_greedy500_confirm.json` |
 | ~~"collapsed" HF Hub re-evals (~11%)~~ | ❌ eval bug | ❌ | Revision-pinning loaded `main`/step-7496. NOT collapse of steps 2500–5000. Disregard. |
 
