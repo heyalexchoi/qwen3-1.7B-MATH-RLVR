@@ -149,6 +149,38 @@ formally excluded for the June run. Both earlier "definitive" framings were over
 
 ---
 
+## End-token test — turnkey GPU recipe (decides the open question)
+
+This is the cheap, decisive test of "does the end-token / config-eos fallback explain vLLM
+degeneracy, or is it model repetition collapse?" It needs a GPU (vLLM can't run here) but is
+two ~minute runs on a single problem. Built into `math500_eval.py` via `--unique_id` (canary
+selection) and `--no_chat_stop_ids` (the A/B toggle).
+
+```bash
+SFT=heyalexchoi/qwen3-1.7b-math-sft   # or local path
+CAN=number_theory/572                  # the problem April-HF solved 8/8, vLLM-June pegged 0/8
+
+# Run A — WITH explicit stop_token_ids (the fixed default)
+python scripts/math500_eval.py --model $SFT --format chat --backend vllm \
+    --unique_id $CAN --run_id ettest_with
+
+# Run B — WITHOUT stop ids: vLLM falls back to config.json's eos (151643)
+python scripts/math500_eval.py --model $SFT --format chat --backend vllm \
+    --unique_id $CAN --no_chat_stop_ids --run_id ettest_without
+```
+
+Compare `n_tokens` (and the response text) in the two `eval_results/*ettest*_samples.jsonl`:
+
+| Run A (with stop ids) | Run B (no stop ids) | Conclusion |
+|-----------------------|---------------------|------------|
+| stops short, correct  | pegs 8192           | **End-token IS a cause** — config-eos fallback degenerates vLLM; the explicit `stop_token_ids` fix matters. |
+| pegs 8192             | pegs 8192           | **Repetition collapse (model)** — end-token ruled out; stop-token fix can't help. |
+| stops short           | stops short         | Neither — 572 isn't degenerate on this stack; the June 0/8 was stack-version-specific. |
+
+Optionally add a `--backend hf` run on the same problem as the known-good reference. Because A
+saves full generations + token counts, the failure *mode* (repetition vs unterminated-coherent)
+is also directly inspectable — which is what we lacked for the June run.
+
 ## What was NOT checked
 - GPU reproduction of the degeneration or of the fix (no GPU in this session).
 - The exact vLLM version used in the original failing run (not recorded).

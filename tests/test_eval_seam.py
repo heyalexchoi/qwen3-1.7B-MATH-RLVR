@@ -116,12 +116,42 @@ def test_rescore_schema_contract():
             check("rescore pass@8 = 2/2", s["pass8"] == 1.0, f"got {s['pass8']}")
 
 
+def test_resume_and_aggregate():
+    """_load_done + _aggregate_results: a partial JSONL aggregates correctly and
+    marks done samples so a resume would skip them."""
+    ds_list = [
+        {"unique_id": "test/algebra/1", "problem": "p1", "answer": "4", "level": 1, "subject": "Algebra"},
+        {"unique_id": "test/geometry/2", "problem": "p2", "answer": "9", "level": 5, "subject": "Geometry"},
+    ]
+    with tempfile.TemporaryDirectory() as d:
+        jp = str(Path(d) / "s.jsonl")
+        # Problem 1 fully done: greedy + 2 samples. Problem 2 not present.
+        M._write_sample_rows(jp, ds_list[0], 0, "greedy", [(r"\boxed{4}", 3)], 8192, "chat", "m")
+        M._write_sample_rows(jp, ds_list[0], 0, "sample",
+                             [(r"\boxed{4}", 3), (r"\boxed{5}", 3)], 8192, "chat", "m")
+        done = M._load_done(jp)
+        check("done has p1 greedy", ("test/algebra/1", "greedy", 0) in done)
+        check("done has p1 sample 1", ("test/algebra/1", "sample", 1) in done)
+        check("done lacks p2", ("test/geometry/2", "greedy", 0) not in done)
+
+        # Duplicate a greedy row with a DIFFERENT answer — aggregation keeps last.
+        M._write_sample_rows(jp, ds_list[0], 0, "greedy", [(r"\boxed{99}", 3)], 8192, "chat", "m")
+        results = M._aggregate_results(jp, ds_list)
+        r1 = next(r for r in results if r["expected"] == "4")
+        check("aggregate p1 has 1 pass1", len(r1["pass1"]) == 1)
+        check("aggregate p1 has 2 pass8", len(r1["pass8"]) == 2)
+        check("aggregate dedups keep-last (greedy=99)", r1["pass1"][0]["predicted"] == "99",
+              f"got {r1['pass1'][0]['predicted']}")
+        check("aggregate preserves n_tokens", r1["pass8"][0].get("n_tokens") == 3)
+
+
 def main():
     print("== seam test: scripts/math500_eval.py (no GPU) ==")
     test_extract_boxed()
     test_format_defaults()
     test_prompts_and_stop_ids()
     test_sample_writer()
+    test_resume_and_aggregate()
     test_rescore_schema_contract()
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     if FAIL:

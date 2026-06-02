@@ -215,7 +215,9 @@ def generate_batch(
     if repetition_penalty and repetition_penalty != 1.0:
         gen_kwargs["repetition_penalty"] = repetition_penalty
     if fmt == "chat":
-        gen_kwargs["eos_token_id"] = stop_ids
+        if stop_ids:
+            gen_kwargs["eos_token_id"] = stop_ids
+        # else: HF falls back to the model's default eos (A/B parity with vLLM)
     else:
         gen_kwargs["stop_strings"] = STOP_STRINGS
         gen_kwargs["tokenizer"] = tokenizer
@@ -276,7 +278,10 @@ def run_eval_vllm(
         common["repetition_penalty"] = repetition_penalty
     # Chat: stop on token ids (eos ∪ <|im_end|>). Completion: stop on strings.
     if fmt == "chat":
-        common["stop_token_ids"] = stop_ids
+        if stop_ids:
+            common["stop_token_ids"] = stop_ids
+        # else (--no_chat_stop_ids): pass nothing, so vLLM falls back to its config
+        # default eos — the end-token A/B test. See docs/vllm-eos-investigation.md.
     else:
         common["stop"] = list(STOP_STRINGS)
 
@@ -439,9 +444,14 @@ def _provenance(args):
 # Per-sample JSONL (durable artifact + analyzable token counts)
 # ---------------------------------------------------------------------------
 
+def _uid_of(ex, i) -> str:
+    """Stable per-problem id: dataset unique_id if present, else dataset-order index."""
+    return ex.get("unique_id") or f"idx{i}"
+
+
 def _write_sample_rows(jsonl_path, ex, i, pass_type, samples, max_new_tokens, fmt, model):
     """Append per-sample rows. `samples` = list of (text, n_tokens)."""
-    uid = ex.get("unique_id", str(i))
+    uid = _uid_of(ex, i)
     with open(jsonl_path, "a") as f:
         for sample_idx, (text, n_tokens) in enumerate(samples):
             pred = extract_boxed(text)
@@ -463,6 +473,56 @@ def _write_sample_rows(jsonl_path, ex, i, pass_type, samples, max_new_tokens, fm
             if MATH_VERIFY_AVAILABLE:
                 row["correct"] = score_correct(pred, ex["answer"])
             f.write(json.dumps(row) + "\n")
+
+
+def _load_done(jsonl_path) -> set:
+    """Set of (unique_id, pass_type, sample_idx) already written — for --resume."""
+    done = set()
+    if os.path.exists(jsonl_path):
+        with open(jsonl_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                r = json.loads(line)
+                done.add((r["unique_id"], r["pass_type"], r["sample_idx"]))
+    return done
+
+
+def _aggregate_results(jsonl_path, ds_list) -> list:
+    """Build the pass1/pass8 combined results from the JSONL (dedup, keep last).
+
+    Decouples generation from aggregation so a resumed/partial run still produces a
+    correct combined json from whatever is on disk. greedy rows -> pass1, sample -> pass8.
+    """
+    order, meta = {}, {}
+    for i, ex in enumerate(ds_list):
+        uid = _uid_of(ex, i)
+        order[uid] = i
+        meta[uid] = {"problem": ex["problem"], "expected": ex["answer"],
+                     "level": ex["level"], "subject": ex["subject"]}
+    latest = {}
+    with open(jsonl_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            r = json.loads(line)
+            latest[(r["unique_id"], r["pass_type"], r["sample_idx"])] = {
+                "response": r["response"], "predicted": r["predicted"],
+                "n_tokens": r.get("n_tokens"),
+            }
+    grouped = defaultdict(lambda: {"pass1": [], "pass8": []})
+    for (uid, ptype, sidx), s in latest.items():
+        grouped[uid]["pass1" if ptype == "greedy" else "pass8"].append((sidx, s))
+    results = []
+    for uid in sorted(grouped, key=lambda u: order.get(u, 1 << 30)):
+        p1 = [s for _, s in sorted(grouped[uid]["pass1"])]
+        p8 = [s for _, s in sorted(grouped[uid]["pass8"])]
+        results.append({**meta.get(uid, {"problem": None, "expected": None,
+                                         "level": None, "subject": None}),
+                        "pass1": p1, "pass8": p8})
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +562,15 @@ def main():
     parser.add_argument("--top_k", type=int, default=None)
     parser.add_argument("--repetition_penalty", type=float, default=None)
     parser.add_argument("--run_id", type=str, default=None,
-                        help="Run id in output filenames (default: UTC timestamp).")
+                        help="Run id in output filenames (default: UTC timestamp). Reuse the SAME "
+                             "--run_id to resume a crashed run (skips samples already on disk).")
+    parser.add_argument("--unique_id", nargs="*", default=None,
+                        help="Restrict to problems whose dataset unique_id contains any of these "
+                             "substrings. Use for a cheap canary, e.g. --unique_id number_theory/572.")
+    parser.add_argument("--no_chat_stop_ids", action="store_true",
+                        help="CHAT vLLM only: do NOT pass explicit stop_token_ids, forcing vLLM to "
+                             "fall back to config.json's eos. A/B against the default to test the "
+                             "end-token hypothesis for vLLM degeneracy. See docs/vllm-eos-investigation.md.")
     args = parser.parse_args()
 
     if args.latest and args.checkpoint_step:
@@ -559,6 +627,15 @@ def main():
     # ----- dataset + stats -----
     print("Loading MATH-500 dataset...")
     ds = load_dataset("HuggingFaceH4/MATH-500", split="test")
+    if args.unique_id:
+        keep = [i for i, ex in enumerate(ds)
+                if any(u in (ex.get("unique_id") or "") for u in args.unique_id)]
+        if not keep:
+            print(f"ERROR: no problems matched --unique_id {args.unique_id}", flush=True)
+            sys.exit(1)
+        ds = ds.select(keep)
+        print(f"--unique_id filter: {len(ds)} problem(s): "
+              f"{[ds[i].get('unique_id') for i in range(len(ds))]}")
     if args.max_samples:
         ds = ds.select(range(min(args.max_samples, len(ds))))
 
@@ -583,36 +660,48 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
     stop_ids = get_stop_ids(tokenizer) if args.format == "chat" else None
     if args.format == "chat":
-        print(f"Chat stop token ids: {stop_ids} "
-              f"(eos={tokenizer.eos_token!r}, <|im_end|>={tokenizer.convert_tokens_to_ids('<|im_end|>')})")
+        if args.no_chat_stop_ids:
+            stop_ids = None
+            print("WARNING: --no_chat_stop_ids set — NOT passing explicit stop_token_ids. "
+                  "vLLM will fall back to config.json's eos (end-token A/B test).")
+        else:
+            print(f"Chat stop token ids: {stop_ids} "
+                  f"(eos={tokenizer.eos_token!r}, <|im_end|>={tokenizer.convert_tokens_to_ids('<|im_end|>')})")
 
     all_prompts = build_prompts(ds_list, args.format, tokenizer)
     print(f"Sample prompt (first 200 chars): {all_prompts[0][:200]!r}")
 
-    results = []
+    # ----- resume: skip problems already fully on disk (same --run_id) -----
+    done = _load_done(jsonl_path)
+
+    def _fully_done(i, ex):
+        uid = _uid_of(ex, i)
+        if (uid, "greedy", 0) not in done:
+            return False
+        return all((uid, "sample", s) in done for s in range(args.n_samples))
+
+    pending = [i for i, ex in enumerate(ds_list) if not _fully_done(i, ex)]
+    if done:
+        print(f"Resume: {len(ds_list) - len(pending)}/{len(ds_list)} problems already done; "
+              f"{len(pending)} pending.")
 
     if use_vllm:
         hf_commit_hash = args.revision
-        greedy, sampling = run_eval_vllm(
-            args.model, args.revision, all_prompts,
-            fmt=args.format, stop_ids=stop_ids,
-            max_new_tokens=args.max_new_tokens, n_samples=args.n_samples,
-            temperature=args.temperature, top_p=args.top_p, top_k=args.top_k,
-            repetition_penalty=args.repetition_penalty,
-        )
-        for i, ex in enumerate(ds_list):
-            g_text, g_tok = greedy[i]
-            _write_sample_rows(jsonl_path, ex, i, "greedy", [(g_text, g_tok)],
-                               args.max_new_tokens, args.format, args.model)
-            _write_sample_rows(jsonl_path, ex, i, "sample", sampling[i],
-                               args.max_new_tokens, args.format, args.model)
-            results.append({
-                "problem": ex["problem"], "expected": ex["answer"],
-                "level": ex["level"], "subject": ex["subject"],
-                "pass1": [{"response": g_text, "predicted": extract_boxed(g_text), "n_tokens": g_tok}],
-                "pass8": [{"response": t, "predicted": extract_boxed(t), "n_tokens": n}
-                          for t, n in sampling[i]],
-            })
+        if pending:
+            pend_prompts = [all_prompts[i] for i in pending]
+            greedy, sampling = run_eval_vllm(
+                args.model, args.revision, pend_prompts,
+                fmt=args.format, stop_ids=stop_ids,
+                max_new_tokens=args.max_new_tokens, n_samples=args.n_samples,
+                temperature=args.temperature, top_p=args.top_p, top_k=args.top_k,
+                repetition_penalty=args.repetition_penalty,
+            )
+            for k, i in enumerate(pending):
+                ex = ds_list[i]
+                _write_sample_rows(jsonl_path, ex, i, "greedy", [greedy[k]],
+                                   args.max_new_tokens, args.format, args.model)
+                _write_sample_rows(jsonl_path, ex, i, "sample", sampling[k],
+                                   args.max_new_tokens, args.format, args.model)
     else:
         print(f"Backend: HF | loading model: {args.model} (revision={revision_str})")
         model = AutoModelForCausalLM.from_pretrained(
@@ -623,10 +712,9 @@ def main():
         print(f"HF commit hash: {hf_commit_hash or 'N/A (local model)'}")
 
         B = args.problem_batch_size
-        for batch_start in tqdm(range(0, len(ds_list), B), total=(len(ds_list) + B - 1) // B,
-                                desc="batches"):
-            batch = ds_list[batch_start:batch_start + B]
-            prompts = all_prompts[batch_start:batch_start + B]
+        for bs in tqdm(range(0, len(pending), B), total=(len(pending) + B - 1) // B, desc="batches"):
+            idxs = pending[bs:bs + B]
+            prompts = [all_prompts[i] for i in idxs]
             gkw = dict(fmt=args.format, stop_ids=stop_ids, top_p=args.top_p, top_k=args.top_k,
                        repetition_penalty=args.repetition_penalty)
             greedy_results = generate_batch(model, tokenizer, prompts, n_per_prompt=1,
@@ -634,20 +722,15 @@ def main():
             sampling_results = generate_batch(model, tokenizer, prompts, n_per_prompt=args.n_samples,
                                               temperature=args.temperature,
                                               max_new_tokens=args.max_new_tokens, **gkw)
-            for i, ex in enumerate(batch):
-                gi = batch_start + i
-                _write_sample_rows(jsonl_path, ex, gi, "greedy", greedy_results[i],
+            for j, i in enumerate(idxs):
+                ex = ds_list[i]
+                _write_sample_rows(jsonl_path, ex, i, "greedy", greedy_results[j],
                                    args.max_new_tokens, args.format, args.model)
-                _write_sample_rows(jsonl_path, ex, gi, "sample", sampling_results[i],
+                _write_sample_rows(jsonl_path, ex, i, "sample", sampling_results[j],
                                    args.max_new_tokens, args.format, args.model)
-                results.append({
-                    "problem": ex["problem"], "expected": ex["answer"],
-                    "level": ex["level"], "subject": ex["subject"],
-                    "pass1": [{"response": t, "predicted": extract_boxed(t), "n_tokens": n}
-                              for t, n in greedy_results[i]],
-                    "pass8": [{"response": t, "predicted": extract_boxed(t), "n_tokens": n}
-                              for t, n in sampling_results[i]],
-                })
+
+    # Build the combined pass1/pass8 results from the JSONL (resume-safe).
+    results = _aggregate_results(jsonl_path, ds_list)
 
     # ----- combined json (pass1/pass8 schema — rescore_math500.py consumes this) -----
     output = {
