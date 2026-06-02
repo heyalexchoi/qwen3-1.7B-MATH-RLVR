@@ -26,7 +26,7 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import re
 import sys
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import time
 
@@ -520,10 +520,19 @@ def compute_pass_at_k(results: list[dict], sample_key: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="MATH-500 eval: pass@8 (sampling) or pass@1 (greedy)")
     parser.add_argument("--model", type=str, default="/workspace/qwen3-math-rlvr/outputs/sft_checkpoint")
-    parser.add_argument("--output", type=str, default="/workspace/qwen3-math-rlvr/outputs/sft_eval_results.json",
-                        help="Legacy combined output (backward compat)")
-    parser.add_argument("--output_jsonl", type=str, default="/workspace/qwen3-math-rlvr/outputs/sft_eval_results.jsonl")
-    parser.add_argument("--output_summary", type=str, default="/workspace/qwen3-math-rlvr/outputs/sft_eval_results_summary.json")
+    # Output paths default to None → auto-built under the NON-gitignored eval_results/
+    # dir with a timestamped, self-describing name (see build below). Generations are
+    # the primary artifact; never let them land only in a gitignored/ephemeral path.
+    parser.add_argument("--output", type=str, default=None,
+                        help="Combined output json. Default: auto eval_results/<run>.combined.json")
+    parser.add_argument("--output_jsonl", type=str, default=None,
+                        help="Per-sample generations jsonl. Default: auto eval_results/<run>.samples.jsonl. "
+                             "Pass an existing file to resume a crashed run.")
+    parser.add_argument("--output_summary", type=str, default=None,
+                        help="Summary json. Default: auto eval_results/<run>.summary.json")
+    parser.add_argument("--run_id", type=str, default=None,
+                        help="Run identifier embedded in auto output filenames (default: UTC timestamp). "
+                             "Reuse the same --run_id to resume.")
     parser.add_argument("--data", type=str, default="HuggingFaceH4/MATH-500")
     parser.add_argument("--max_samples", type=int, default=None, help="Limit problems (debug)")
     parser.add_argument("--max_new_tokens", type=int, default=8192)
@@ -550,12 +559,6 @@ def main():
     if args.greedy:
         args.n_samples = 1
         args.temperature = 0.0
-        default_jsonl = "/workspace/qwen3-math-rlvr/outputs/sft_eval_results.jsonl"
-        default_summary = "/workspace/qwen3-math-rlvr/outputs/sft_eval_results_summary.json"
-        if args.output_jsonl == default_jsonl:
-            args.output_jsonl = "/workspace/qwen3-math-rlvr/outputs/sft_eval_greedy_results.jsonl"
-        if args.output_summary == default_summary:
-            args.output_summary = "/workspace/qwen3-math-rlvr/outputs/sft_eval_greedy_summary.json"
 
     # Resolve backend
     if args.backend == "auto":
@@ -584,6 +587,22 @@ def main():
     logger.info(f"Backend: {'vllm' if use_vllm else 'hf'} "
                 f"(vllm_available={VLLM_AVAILABLE}, flash_attn_available={FLASH_ATTN_AVAILABLE})")
     logger.info(f"math-verify: {'available' if MATH_VERIFY_AVAILABLE else 'NOT installed — using regex fallback'}")
+
+    # Build self-describing output paths under the NON-gitignored eval_results/ dir.
+    # Filename encodes: model tag, mode, max_new_tokens, backend, and a run id (UTC
+    # timestamp by default) so runs never collide or silently overwrite. The lost
+    # 2026-04 SFT generations are why this is no longer optional.
+    run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    mode = "greedy" if args.greedy else f"samp{args.n_samples}"
+    model_tag = re.sub(r"[^A-Za-z0-9._-]", "-", Path(args.model.rstrip("/")).name) or "model"
+    base = f"eval_results/sft_{model_tag}_{mode}_max{args.max_new_tokens}_{'vllm' if use_vllm else 'hf'}_{run_id}"
+    if args.output_jsonl is None:
+        args.output_jsonl = f"{base}.samples.jsonl"
+    if args.output_summary is None:
+        args.output_summary = f"{base}.summary.json"
+    if args.output is None:
+        args.output = f"{base}.combined.json"
+    logger.info(f"Eval outputs → {args.output_jsonl} (+ summary/combined). run_id={run_id}")
 
     for path in [args.output, args.output_jsonl, args.output_summary]:
         Path(path).parent.mkdir(parents=True, exist_ok=True)

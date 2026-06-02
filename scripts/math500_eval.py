@@ -376,7 +376,11 @@ def main():
         print(f"Resolved: step {args.checkpoint_step} → {args.revision}")
 
     tag = _model_tag(args.model)
-    output_path = f"outputs/{tag}_step{args.checkpoint_step}_math500_results.json"
+    # Write to the NON-gitignored eval_results/ dir with a UTC timestamp so generations
+    # are durable and runs never overwrite each other (outputs/ is gitignored — that's
+    # how the 2026-04 SFT generations were lost).
+    _ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    output_path = f"eval_results/{tag}_step{args.checkpoint_step}_{_ts}_math500_results.json"
     print(f"Output path: {output_path}")
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)

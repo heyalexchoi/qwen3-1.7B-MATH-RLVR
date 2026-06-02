@@ -8,14 +8,17 @@ Demonstrating RLVR (GRPO from base) on math reasoning with Qwen3-1.7B-Base.
 > collapsed / good model lost" conclusion was an **eval bug** (revision-pinning loaded the
 > collapsed final `main` checkpoint), NOT a training failure.
 >
-> **SFT correction (2026-05-31):** the "SFT ~0% degenerate / capacity wall" conclusion below is a
-> **misdiagnosis** and is superseded by `POC-RESULTS.md`. The 2026-04-10 logs show the **final** SFT
-> checkpoint, run correctly (chat template, **sampling temp=0.6**, 8192 tok), solves problems normally
-> (26/48 correct over the 6 problems the run reached before the pod died). The "~0%" came from
-> **greedy** decoding — which this very README warns is banned for Qwen3 thinking mode (it loops). So
-> SFT was **not** broken; "SFT failed → we pivoted to zero-RL" was a greedy-eval artifact. A full-500
-> fair number (sampling→c/n) is still pending. The GRPO-from-base POC headline is unaffected.
-> **Sections below this banner predate these corrections — trust `POC-RESULTS.md` where they conflict.**
+> **SFT status — re-corrected 2026-06-01 (this REINSTATES the capacity/length diagnosis below).**
+> The 2026-05-31 banner that called the "SFT degenerate / capacity wall" conclusion a *misdiagnosis*
+> was itself wrong. Reading the **full** 2026-04-10 log (not just the easy problems): the final SFT
+> checkpoint **solves some problems cleanly and intermittently collapses on others** (572=8/8 clean;
+> 1994 & 1349 = 0/8, all samples run to 8192 in `111…` repetition — and `1349` is *level 2*, so the
+> collapse is **failure-to-terminate-within-budget, not a difficulty law**). 26/48 was a real count over 6
+> dataset-order problems, but "not degenerate / clean termination" was a **mischaracterization**. It is
+> an **undertrained thinking model** — exactly the capacity/length mismatch the section below
+> describes. A 2026-06-01 re-eval could not even produce a trustworthy number (the vLLM stack was
+> broken — turned 572's 8/8 into 0/8). **The detailed analysis below (lines ~180+) is correct and now
+> vindicated.** The GRPO-from-base POC headline is unaffected. Authoritative: `POC-RESULTS.md`.
 
 → **Authoritative results + diagnosis + guardrails:** [`docs/POC-RESULTS.md`](docs/POC-RESULTS.md)
 → **Run ledger (append-only):** [`RUNS.jsonl`](RUNS.jsonl)
@@ -32,7 +35,7 @@ Demonstrating RLVR (GRPO from base) on math reasoning with Qwen3-1.7B-Base.
 [1] Base eval — GSM8K + MATH-500                       ✅  35.8% pass@1 / 65.0% pass@8 (math-verify)
 [2] Generate Qwen3-32B traces                          ✅  7,154 correct traces (95.51%)
 [3] SFT on correct traces                              ✅  clean train (loss 0.48, tok-acc 84%)
-[3a] SFT eval — MATH-500                               ⚠️  final ckpt NOT degenerate under sampling (26/48 over 6 probs); "~0%" was a GREEDY artifact. Full-500 fair number (sampling→c/n) pending
+[3a] SFT eval — MATH-500                               ⚠️  undertrained thinking model: clean-solve / intermittent-collapse (572=8/8 clean, 1994=0/8 all-8192). No trustworthy full-500 yet (ckpt fragile under 2026-06-01 vLLM: 572 8/8→0/8, though engine fine — official 1.7B clean 4/4). Lever = better SFT data, see POC-RESULTS.md
 [4] GRPO from base model                               ✅  DONE (step 7496, wandb ckz7jwil). Peak ~step 3000; genuine late collapse by ~7496.
 [4a] GRPO eval — checkpoint-3000                        ✅  43.8% greedy (reproduced live 2026-05-30; archived 44.2%) — REAL, see POC-RESULTS.md
 [4b] "collapsed ~11%" re-evals                          ❌  EVAL BUG, not collapse — revision-pinning loaded `main`/step-7496. Disregard.
@@ -46,7 +49,7 @@ Demonstrating RLVR (GRPO from base) on math reasoning with Qwen3-1.7B-Base.
 | Phase | MATH-500 pass@1 | pass@8 | Notes |
 |-------|----------------|--------|-------|
 | Base | 35.8% (greedy) ✅ | **65.0%** ✅ | math-verify; `outputs/baseline_math500_mv_rescored.json` |
-| Post-SFT | full number pending; NOT degenerate | — | Final ckpt works under sampling (26/48 over 6 probs, temp=0.6); "~0%" was a greedy artifact. Compare c/n-to-c/n (base 24.55 / GRPO 36.83). See POC-RESULTS.md |
+| Post-SFT | no trustworthy number | — | Undertrained thinking model: clean-solve / intermittent-collapse (see POC-RESULTS.md "SFT branch"). 2026-06-01 re-eval stack was broken (572 8/8→0/8). Lever = capacity-matched distillation data, not GRPO-on-top. |
 | **GRPO step-3000** | **43.8% (greedy), reproduced live** ✅ | **71.40%** ✅ | archived 44.2%; reproduced 2026-05-30 (HF backend, rev `63870ec`, pinned code) — `outputs/grpo3000_greedy500_confirm.json` |
 | ~~"collapsed" HF Hub re-evals (~11%)~~ | ❌ eval bug | ❌ | Revision-pinning loaded `main`/step-7496. NOT collapse of steps 2500–5000. Disregard. |
 
