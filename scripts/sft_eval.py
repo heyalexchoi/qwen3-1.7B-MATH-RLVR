@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Evaluate SFT checkpoint on MATH-500: pass@1 (greedy) and pass@8 (sampling).
 
+DEPRECATED (2026-06-02): superseded by `scripts/math500_eval.py --format chat`,
+which unifies SFT (chat) and base/GRPO (completion) evaluation behind one entrypoint
+with shared artifact-saving, provenance, upload, and the pass1/pass8 schema that
+rescore_math500.py consumes. This file is KEPT, not deleted, only until the unified
+chat path passes a live GPU canary (572 ≈ 8/8). Do not add features here — port them
+to math500_eval.py. See docs/vllm-eos-investigation.md and eval_results/README.md.
+
 Inference backends (auto-detected, or set with --backend):
   vllm  — primary path; continuous batching, fast, recommended
   hf    — fallback; HF model.generate(); uses flash_attention_2 if available

@@ -14,12 +14,16 @@ you can re-score under any metric, inspect failure modes, and audit. Without the
 you cannot defend.
 
 ## Conventions
-- `sft_eval.py` → `eval_results/sft_<modeltag>_<mode>_max<N>_<backend>_<UTC>.samples.jsonl`
-  (+ `.summary.json`, `.combined.json`). `<mode>` = `greedy` or `sampN`. `<UTC>` = run timestamp
-  (override with `--run_id`; reuse the same `--run_id` to resume a crashed run).
-- `math500_eval.py` → `eval_results/<modeltag>_step<N>_<UTC>_math500_results.json`.
-- Per-sample jsonl rows include: `unique_id, sample_idx, problem, expected, level, subject,
-  response (FULL text), predicted, correct, n_tokens, max_new_tokens`.
+- `math500_eval.py` (unified entrypoint; `--format completion|chat`) →
+  - `eval_results/<tag>_<step|local>_<format>_<UTC>_math500_results.json` — combined,
+    `pass1`/`pass8` schema (consumed by `rescore_math500.py`).
+  - `eval_results/<tag>_<step|local>_<format>_<UTC>_math500_samples.jsonl` — per-sample
+    generations (the durable artifact). `<UTC>` = run timestamp, override with `--run_id`.
+- Per-sample jsonl rows include: `unique_id, pass_type (greedy|sample), sample_idx, problem,
+  expected, level, subject, response (FULL text), predicted, n_tokens, max_new_tokens, format,
+  model` (+ `correct` when math-verify is installed; authoritative scoring is `rescore_math500.py`).
+- `sft_eval.py` is DEPRECATED (kept until the unified chat path passes a GPU canary). Its old
+  outputs were `sft_<modeltag>_<mode>_max<N>_<backend>_<UTC>.{samples.jsonl,summary.json,combined.json}`.
 
 ## Hard rule (pre-teardown)
 **Before tearing down any pod, `rsync` `eval_results/` back and verify file counts/sizes.** Never

@@ -6,13 +6,19 @@ Fact-based record of a local (no-GPU) investigation into why the SFT checkpoint
 degenerated under vLLM (0/8 on a problem it solved 8/8 under the HF backend in April).
 Tiered by evidence strength. Interpretation is labeled as such.
 
-> **Correction (2026-06-02, same day):** an earlier version of this doc concluded the EOS
-> `config.json`/`generation_config.json` mismatch was the *likely cause* of the SFT vLLM
-> collapse. That conclusion was wrong and is retracted below (see TIER 2). The script that
-> produced the collapse (`sft_eval.py`) already passes an explicit `stop_token_ids` to vLLM,
-> which overrides `config.json`, so the EOS mismatch cannot have caused it. The EOS mismatch is
-> real but is a *separate latent bug* affecting only `math500_eval.py`'s vLLM path. Findings A
-> and B (the measured facts) stand; only the causal interpretation changed.
+> **Correction (2026-06-02, same day — TWO revisions):**
+> 1. An earlier version concluded the EOS `config.json`/`generation_config.json` mismatch was
+>    the *likely cause* of the SFT vLLM collapse. Retracted.
+> 2. The first retraction then over-corrected to "definitely repetition collapse, not EOS,
+>    because `sft_eval.py` passes `stop_token_ids`." That reasoning relied on **current code**,
+>    and the code ran **unversioned per run** with no run-level provenance — so it cannot be
+>    treated as proof of what the 2026-06-01 run actually did.
+>
+> **Calibrated position (this version):** the cause of the 2026-06-01 vLLM collapse **cannot be
+> determined from saved artifacts.** We do not have that run's log (it died on the pod) nor its
+> generations (lost). What we have is circumstantial (see TIER 2). Findings A and B (the
+> measured local facts) stand; the *causal* question about the June run is left open, and the
+> rerun — which now logs stop config and saves generations — is what will settle it.
 
 Environment for these tests: local box, `transformers==5.5.1`, no GPU. Checkpoints read
 from `outputs/sft_checkpoint/` and `outputs/grpo_checkpoint/` (local copies), plus
@@ -89,49 +95,56 @@ guidance: set `eos_token="<|im_end|>"` for Qwen base SFT) and deliberately patch
 
 ---
 
-## TIER 2 — INTERPRETATION (corrected)
+## TIER 2 — INTERPRETATION (open question + weighed evidence)
 
-**The EOS `config.json` mismatch did NOT cause the SFT vLLM collapse.** The 2026-06-01 vLLM
-run used `sft_eval.py`, which (Finding C) already passed `stop_token_ids` including 151645.
-vLLM was therefore told to stop on `<|im_end|>` and still pegged `max_tokens` (8192) on every
-sample. A run that is given the correct stop id and still never stops is a model that **never
-emitted the stop token** — i.e. **repetition collapse**, not a stop-configuration problem.
-This matches the prior-session observation (`111…` repetition to 8192, persisting despite
-`repetition_penalty=1.05`) and the 2026-06-01 RUNS.jsonl refinement ("collapse is SPECIFIC to
-our undertrained SFT checkpoint").
+**The cause of the 2026-06-01 vLLM collapse is not determinable from saved artifacts.** We
+lack the run's log and its generations. Below is the evidence on each side and its strength.
 
-The stock-vs-ours comparison points the same way, not the other way: stock `Qwen/Qwen3-1.7B`
-and our checkpoint both go through the *same* `get_stop_ids` in `sft_eval.py`, so the
-difference between stock (4/4 clean, stopped at 1483–2218 tok) and ours (0/8, all pegged 8192)
-is **the model, not the stop config**. Stock emits `<|im_end|>` and stops; ours loops and
-never reaches it.
+**Evidence that it was NOT an EOS/stop-config problem (i.e. repetition collapse):**
+- *Circumstantial (git history):* the committed `sft_eval.py` has passed
+  `stop_token_ids=get_stop_ids(...)` to the vLLM `SamplingParams` since commit `49f8d8d`
+  (2026-04-10), ~7 weeks before the June run. If that copy ran, vLLM was told to stop on
+  151645 and the EOS-config value in `config.json` was irrelevant. **Weakness:** code ran
+  unversioned on the pod with no run-level provenance — we cannot prove the running copy
+  matched the committed one.
+- *Prior observation (Tier-2 recollection, not in current artifacts):* the failing outputs
+  were described as `111…` repetition to 8192, persisting despite `repetition_penalty=1.05`.
+  A repetition signature is distinct from a coherent-but-unterminated runaway (which is what a
+  missing-stop-token bug produces). **Weakness:** this is a recollection; the actual text was
+  not saved, so it cannot be re-checked.
+- *Stock-vs-ours:* stock `Qwen/Qwen3-1.7B` ran clean (4/4, stopped at 1483–2218 tok) on the
+  same stack while ours pegged 8192. **Weakness:** only informative if both used the same stop
+  config — again unversioned, so not certain.
 
-**What remains valid:**
-- The `extra_special_tokens` patch is harmless (Finding A — measured).
-- The `config.json`/`generation_config.json` EOS mismatch is real (Finding B — measured) and
-  is a genuine latent bug, but only in `math500_eval.py`'s vLLM path (Finding C). It would
-  break a *chat* model run through that script; it did not cause the observed SFT collapse.
+**Evidence that leaves EOS/stop-config in play:**
+- We have no logged `Stop tokens: [...]` line from the actual June vLLM run, so we cannot
+  confirm stop ids were passed in that specific run.
+- `config.json` for the SFT checkpoint does advertise 151643 (Finding B), which *would* matter
+  if that run's code omitted `stop_token_ids` (e.g. an older or locally-edited copy).
 
-**Best current explanation of the SFT vLLM collapse (unchanged from the 2026-06-01
-conclusion):** the cold-start SFT checkpoint is undertrained/marginal and prone to repetition
-collapse. Under HF (April) it solved some problems (572 = 8/8) and collapsed on others
-(1994/1349 = 0/8). Under the vLLM 0.8.5 stack it collapsed even on 572 — most plausibly
-because small numerical differences between the vLLM and HF execution paths tip a borderline
-model into the repetition attractor. Cause not fully isolated, but it is **not** EOS config
-and **not** the `extra_special_tokens` patch.
+**Net:** repetition collapse of an undertrained/marginal checkpoint is the **better-supported**
+explanation (it also fits the April HF data: 572=8/8 but 1994/1349=0/8 — intermittent collapse
+independent of any stop config), but it is **not proven**, and the EOS-config path is not
+formally excluded for the June run. Both earlier "definitive" framings were overconfident.
+
+**What remains measured and certain (local, current files):**
+- The `extra_special_tokens` patch is harmless (Finding A).
+- The `config.json`(151643)/`generation_config.json`(151645) EOS mismatch is real (Finding B),
+  and `math500_eval.py`'s old vLLM path passed no `stop_token_ids` (Finding C) — a genuine
+  latent bug for chat models in *that* script regardless of what caused the June run.
 
 ---
 
 ## Remediation
 
-- **Backend for the rerun: HF backend** (proven 8/8 on 572 in April). A stop-token fix cannot
-  rescue a model that is looping rather than failing to stop, so vLLM does not get us a
-  trustworthy SFT number for free. Treat vLLM as "retry only if a canary passes" — it must
-  reproduce a known-good result (e.g. 572 ≈ 8/8) before any vLLM SFT number is trusted.
-- **Still fix the latent bug** when unifying the scripts: the merged vLLM path must pass
-  explicit `stop_token_ids` (carry over `get_stop_ids` from `sft_eval.py`) so a chat model is
-  never left depending on `config.json`'s 151643. This is good hygiene, not a fix for the
-  collapse.
+- **Backend for the rerun: HF backend** (proven 8/8 on 572 in April). vLLM only as "retry if a
+  canary passes" — it must reproduce a known-good result (e.g. 572 ≈ 8/8) before any vLLM SFT
+  number is trusted.
+- **Make the cause decidable next time** (this is the real fix for the ambiguity above): the
+  unified `math500_eval.py` now (a) logs the chat stop-token ids it passes, (b) always passes
+  explicit `stop_token_ids` on the chat vLLM path, and (c) saves every generation + token count
+  to a non-gitignored per-sample JSONL. After the rerun we can read the actual output text and
+  settle "repetition collapse vs unterminated runaway" directly, instead of inferring.
 - The `extra_special_tokens` patch is exonerated and needs no change.
 
 ---
