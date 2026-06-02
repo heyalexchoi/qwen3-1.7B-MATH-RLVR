@@ -1,0 +1,8 @@
+# The HF dataset repo (heyalexchoi/qwen3-math-rlvr-results) is the durable record
+# for full generations — they auto-upload there. Do NOT commit the large files to
+# git (a chat run is ~27MB; git history would bloat permanently).
+*_results.json
+*_samples.jsonl
+
+# Git tracks ONLY the small metrics-only summary + this dir's docs.
+# (*_summary.json, README.md, .gitignore do not match the patterns above.)

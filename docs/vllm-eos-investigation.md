@@ -160,16 +160,16 @@ selection) and `--no_chat_stop_ids` (the A/B toggle).
 SFT=heyalexchoi/qwen3-1.7b-math-sft   # or local path
 CAN=number_theory/572                  # the problem April-HF solved 8/8, vLLM-June pegged 0/8
 
-# Run A — WITH explicit stop_token_ids (the fixed default)
-python scripts/math500_eval.py --model $SFT --format chat --backend vllm \
-    --unique_id $CAN --run_id ettest_with
+# Run A — WITH explicit stop_token_ids (the fixed default).
+#   → eval_results/sft_local_chat_max8192_math500_subset_samples.jsonl
+python scripts/math500_eval.py --model $SFT --format chat --backend vllm --unique_id $CAN
 
-# Run B — WITHOUT stop ids: vLLM falls back to config.json's eos (151643)
-python scripts/math500_eval.py --model $SFT --format chat --backend vllm \
-    --unique_id $CAN --no_chat_stop_ids --run_id ettest_without
+# Run B — WITHOUT stop ids: vLLM falls back to config.json's eos (151643).
+#   → ..._subset_nostopids_samples.jsonl  (distinct file via the auto _nostopids suffix)
+python scripts/math500_eval.py --model $SFT --format chat --backend vllm --unique_id $CAN --no_chat_stop_ids
 ```
-
-Compare `n_tokens` (and the response text) in the two `eval_results/*ettest*_samples.jsonl`:
+(Both are `--unique_id` diagnostic runs → local-only, deterministic distinct filenames, no
+`--run_id` needed.) Compare `n_tokens` and response text in the two `*_subset*_samples.jsonl`:
 
 | Run A (with stop ids) | Run B (no stop ids) | Conclusion |
 |-----------------------|---------------------|------------|

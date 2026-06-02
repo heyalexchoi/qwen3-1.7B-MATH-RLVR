@@ -13,17 +13,27 @@ made the SFT score unre-scorable and unverifiable. Generations are the primary a
 you can re-score under any metric, inspect failure modes, and audit. Without them you have a number
 you cannot defend.
 
+## Storage model (the single failproof path)
+The **HF dataset repo `heyalexchoi/qwen3-math-rlvr-results` is the durable record** for full
+generations — `math500_eval.py` uploads them automatically (periodically during the run via
+`--upload_every`, and at the end). Git tracks **only the small metrics-only `*_summary.json`**
+plus this dir's docs; the large `*_results.json` / `*_samples.jsonl` are **gitignored** (a chat
+run is ~27MB — git history would bloat permanently). Three independent durability layers, no flag
+to remember: (1) local JSONL written incrementally, (2) mandatory HF upload, (3) the pre-teardown
+rsync rule below. The 2026-04 loss happened only because all three were absent at once.
+
 ## Conventions
-- `math500_eval.py` (unified entrypoint; `--format completion|chat`) →
-  - `eval_results/<tag>_<step|local>_<format>_<UTC>_math500_results.json` — combined,
-    `pass1`/`pass8` schema (consumed by `rescore_math500.py`).
-  - `eval_results/<tag>_<step|local>_<format>_<UTC>_math500_samples.jsonl` — per-sample
-    generations (the durable artifact). `<UTC>` = run timestamp, override with `--run_id`.
-- Per-sample jsonl rows include: `unique_id, pass_type (greedy|sample), sample_idx, problem,
-  expected, level, subject, response (FULL text), predicted, n_tokens, max_new_tokens, format,
-  model` (+ `correct` when math-verify is installed; authoritative scoring is `rescore_math500.py`).
-- `sft_eval.py` is DEPRECATED (kept until the unified chat path passes a GPU canary). Its old
-  outputs were `sft_<modeltag>_<mode>_max<N>_<backend>_<UTC>.{samples.jsonl,summary.json,combined.json}`.
+- Filenames are **deterministic** (no timestamp) so re-running the same command **auto-resumes**
+  (skips finished samples; on a fresh pod it pulls the prior partial JSONL from HF). Base name:
+  `<tag>_<step|local>_<format>_max<N>_math500`, plus `_subset` (when `--unique_id`) / `_nostopids`
+  (when `--no_chat_stop_ids`). Override with `--output_name`; force a clean run with `--fresh`.
+  Three files per run: `<base>_results.json` (full → HF), `<base>_samples.jsonl` (full → HF),
+  `<base>_summary.json` (metrics only → git).
+- Per-sample jsonl rows: `unique_id, pass_type (greedy|sample), sample_idx, problem, expected,
+  level, subject, response (FULL text), predicted, n_tokens, max_new_tokens, format, model`
+  (+ `correct` when math-verify is installed; `rescore_math500.py` is authoritative).
+- Diagnostic runs (`--unique_id` canary / `--no_chat_stop_ids` A-B) are **local-only** (not uploaded).
+- `sft_eval.py` is DEPRECATED (kept until the unified chat path passes a GPU canary, then deleted).
 
 ## Hard rule (pre-teardown)
 **Before tearing down any pod, `rsync` `eval_results/` back and verify file counts/sizes.** Never
