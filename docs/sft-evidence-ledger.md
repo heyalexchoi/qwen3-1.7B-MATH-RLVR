@@ -177,14 +177,17 @@ These are **teacher (Qwen-32B) traces**, not student output. Same problem *types
 **Checked 2026-06-02 (local, no GPU) — see [vllm-eos-investigation.md](vllm-eos-investigation.md):**
 - `extra_special_tokens` list→{} patch → **harmless / suspect cleared.** All special-token ids
   identical (list vs {}) on both checkpoints, matching base; round-trip identical.
-- vLLM degeneration → **likely cause found:** SFT checkpoint's `config.json` eos=151643 disagrees
-  with `generation_config.json`/tokenizer eos=151645; vLLM may stop on the wrong (never-emitted)
-  token → runaway. Hypothesis from config inspection, not GPU-confirmed. Fix = explicit
-  `stop_token_ids=[151645]` + canary.
+- SFT vLLM collapse → **NOT an EOS-config problem.** `sft_eval.py` already passes
+  `stop_token_ids` incl. 151645 (vLLM honors it over config.json); given the correct stop id it
+  still pegged 8192 → the model never emitted its stop → repetition collapse of the undertrained
+  checkpoint (matches 2026-06-01 conclusion). The `config.json`(151643)/`generation_config`(151645)
+  EOS mismatch is real but is a latent bug only in `math500_eval.py`'s vLLM path, not the cause here.
+  Rerun backend = HF (proven 8/8 April); vLLM only behind a 572≈8/8 canary.
 
 **NOT checked / still open:**
 - Actual SFT generation text (never saved; needs canary-gated GPU re-run to capture).
-- GPU reproduction of the vLLM EOS hypothesis and its fix.
+- GPU reproduction (no GPU this session). Root cause of vLLM-worse-than-HF collapse on 572 is
+  best-explained as numerical sensitivity of a marginal model, not fully isolated.
 - A trustworthy full-500 SFT c/n (needs April HF + tf~5.5.3 env reproduced, gated on 572≈8/8 canary).
 - Whether raising the eval budget to 16–32k recovers the within-budget failures (directly tests the
   Tier-3 length-causation inference — the single highest-value next eval).

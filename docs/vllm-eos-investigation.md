@@ -6,6 +6,14 @@ Fact-based record of a local (no-GPU) investigation into why the SFT checkpoint
 degenerated under vLLM (0/8 on a problem it solved 8/8 under the HF backend in April).
 Tiered by evidence strength. Interpretation is labeled as such.
 
+> **Correction (2026-06-02, same day):** an earlier version of this doc concluded the EOS
+> `config.json`/`generation_config.json` mismatch was the *likely cause* of the SFT vLLM
+> collapse. That conclusion was wrong and is retracted below (see TIER 2). The script that
+> produced the collapse (`sft_eval.py`) already passes an explicit `stop_token_ids` to vLLM,
+> which overrides `config.json`, so the EOS mismatch cannot have caused it. The EOS mismatch is
+> real but is a *separate latent bug* affecting only `math500_eval.py`'s vLLM path. Findings A
+> and B (the measured facts) stand; only the causal interpretation changed.
+
 Environment for these tests: local box, `transformers==5.5.1`, no GPU. Checkpoints read
 from `outputs/sft_checkpoint/` and `outputs/grpo_checkpoint/` (local copies), plus
 `Qwen/Qwen3-1.7B-Base` from HF cache.
@@ -64,66 +72,67 @@ consistent (151643 everywhere).
 **Prior context (from `memory/math-rlvr.md` / PLAN.md):** the `generation_config.json` value
 of 151645 is not accidental — an earlier session diagnosed the Qwen-base EOS problem (TRL
 guidance: set `eos_token="<|im_end|>"` for Qwen base SFT) and deliberately patched
-`generation_config.json` to 151645 on local, pod, and HF Hub. That fix is exactly why the HF
-backend stops correctly. The gap this investigation identifies: the patch was applied to
-`generation_config.json` but **not** to `config.json` (still 151643), and the vLLM code path
-reads `config.json` and passes no explicit `stop_token_ids` — so the known fix never covered
-vLLM. This is a fix-coverage gap, not a newly discovered EOS bug.
+`generation_config.json` to 151645 on local, pod, and HF Hub.
 
-### Finding C — the vLLM path passes no explicit stop token id
+### Finding C — the two eval scripts handle vLLM stop tokens differently
 
-`scripts/math500_eval.py` `run_eval_vllm()` builds `SamplingParams(..., stop=list(STOP_STRINGS))`
-with **no** `stop_token_ids`. So which EOS id terminates a vLLM generation is left to vLLM's
-default, which is read from the model's config — not chosen by us.
-
----
-
-## TIER 2 — INTERPRETATION (consistent with the facts, not yet GPU-confirmed)
-
-**Most likely cause of the 0/8 vLLM degeneration:** EOS mismatch. If the vLLM version used
-took the stop id from `config.json` (151643, `<|endoftext|>`) rather than
-`generation_config.json` (151645, `<|im_end|>`), then because the SFT chat model emits
-`<|im_end|>` and not `<|endoftext|>`, vLLM never saw a stop token and generated to
-`max_tokens` on every sample — which presents exactly as the observed runaway/degeneration.
-The HF backend's `generate()` honors `generation_config.json` (151645) by default, so it
-stopped correctly → April's 8/8.
-
-Supporting (not proof):
-- The checkpoint that worked under vLLM (GRPO) has consistent EOS; the one that failed (SFT)
-  does not.
-- The 2026-06-01 diagnostic (RUNS.jsonl) found stock `Qwen/Qwen3-1.7B` solved 572 cleanly 4/4
-  on the *same* vLLM 0.8.5 stack (stopped at 1483–2218 tokens) while our SFT checkpoint pegged
-  8192 on all samples. That left "engine fine, our checkpoint specifically fails" as an
-  unexplained puzzle — the EOS-coverage gap explains it: the stock model stops correctly under
-  vLLM, so its effective stop id must be reached, whereas our SFT `config.json` advertises
-  151643 which the chat model never emits. **To confirm:** compare stock `Qwen/Qwen3-1.7B`'s
-  `config.json` `eos_token_id` against our SFT checkpoint's (151643). If stock includes 151645
-  and ours does not, the hypothesis is corroborated. (Not done here — stock non-base model not
-  in local cache.)
-- That same 2026-06-01 run ruled out a sibling sub-suspect: neutralizing
-  `generation_config.json` `do_sample` did not fix it. It never tested the eos id / explicit
-  `stop_token_ids`.
-- Whether a given vLLM version reads `generation_config.json` by default has changed across
-  vLLM releases. The exact vLLM version of the failing run was not recorded, so the default
-  in effect then is unknown. Either way, not passing an explicit `stop_token_ids` makes the
-  outcome depend on that default — a fragility regardless of cause.
-
-**Not yet established:** this has not been reproduced on a GPU. It is a hypothesis from
-config inspection, strong but unconfirmed.
+- `scripts/sft_eval.py` (the script that ran the SFT eval, incl. the 2026-06-01 vLLM run):
+  its vLLM path builds `SamplingParams(..., stop_token_ids=get_stop_ids(tokenizer))`
+  (lines 180/190 → 138–143). `get_stop_ids` = `{eos_token_id} ∪ {<|im_end|> id}`, which for
+  the SFT checkpoint includes **151645**. vLLM honors `stop_token_ids` regardless of what
+  `config.json` says. So this script **already tells vLLM to stop on `<|im_end|>`** — the
+  `config.json` value of 151643 is irrelevant to it.
+- `scripts/math500_eval.py` (the GRPO/base script): its vLLM path passes only
+  `stop=list(STOP_STRINGS)`, **no** `stop_token_ids`. For this script, the stop id is left to
+  vLLM's default (read from `config.json` = 151643). This is a real latent bug *for that
+  script* — but it was never used for the SFT eval.
 
 ---
 
-## Remediation (applies to the rerun regardless of which way the hypothesis breaks)
+## TIER 2 — INTERPRETATION (corrected)
 
-Pass the stop token id explicitly so the result no longer depends on a vLLM default:
-- add `stop_token_ids=[151645]` (and optionally 151643) to the vLLM `SamplingParams`, **or**
-  load the LLM with `generation_config="auto"` so `generation_config.json` (151645) is applied.
-- Gate any vLLM run behind a canary: it must reproduce the known-good result on a problem the
-  HF backend solved before any vLLM number is trusted.
+**The EOS `config.json` mismatch did NOT cause the SFT vLLM collapse.** The 2026-06-01 vLLM
+run used `sft_eval.py`, which (Finding C) already passed `stop_token_ids` including 151645.
+vLLM was therefore told to stop on `<|im_end|>` and still pegged `max_tokens` (8192) on every
+sample. A run that is given the correct stop id and still never stops is a model that **never
+emitted the stop token** — i.e. **repetition collapse**, not a stop-configuration problem.
+This matches the prior-session observation (`111…` repetition to 8192, persisting despite
+`repetition_penalty=1.05`) and the 2026-06-01 RUNS.jsonl refinement ("collapse is SPECIFIC to
+our undertrained SFT checkpoint").
 
-**Net effect on backend choice:** vLLM is usable for the rerun (the efficiency we want), with
-the explicit stop id + canary. The `extra_special_tokens` patch is exonerated and needs no
-change.
+The stock-vs-ours comparison points the same way, not the other way: stock `Qwen/Qwen3-1.7B`
+and our checkpoint both go through the *same* `get_stop_ids` in `sft_eval.py`, so the
+difference between stock (4/4 clean, stopped at 1483–2218 tok) and ours (0/8, all pegged 8192)
+is **the model, not the stop config**. Stock emits `<|im_end|>` and stops; ours loops and
+never reaches it.
+
+**What remains valid:**
+- The `extra_special_tokens` patch is harmless (Finding A — measured).
+- The `config.json`/`generation_config.json` EOS mismatch is real (Finding B — measured) and
+  is a genuine latent bug, but only in `math500_eval.py`'s vLLM path (Finding C). It would
+  break a *chat* model run through that script; it did not cause the observed SFT collapse.
+
+**Best current explanation of the SFT vLLM collapse (unchanged from the 2026-06-01
+conclusion):** the cold-start SFT checkpoint is undertrained/marginal and prone to repetition
+collapse. Under HF (April) it solved some problems (572 = 8/8) and collapsed on others
+(1994/1349 = 0/8). Under the vLLM 0.8.5 stack it collapsed even on 572 — most plausibly
+because small numerical differences between the vLLM and HF execution paths tip a borderline
+model into the repetition attractor. Cause not fully isolated, but it is **not** EOS config
+and **not** the `extra_special_tokens` patch.
+
+---
+
+## Remediation
+
+- **Backend for the rerun: HF backend** (proven 8/8 on 572 in April). A stop-token fix cannot
+  rescue a model that is looping rather than failing to stop, so vLLM does not get us a
+  trustworthy SFT number for free. Treat vLLM as "retry only if a canary passes" — it must
+  reproduce a known-good result (e.g. 572 ≈ 8/8) before any vLLM SFT number is trusted.
+- **Still fix the latent bug** when unifying the scripts: the merged vLLM path must pass
+  explicit `stop_token_ids` (carry over `get_stop_ids` from `sft_eval.py`) so a chat model is
+  never left depending on `config.json`'s 151643. This is good hygiene, not a fix for the
+  collapse.
+- The `extra_special_tokens` patch is exonerated and needs no change.
 
 ---
 
