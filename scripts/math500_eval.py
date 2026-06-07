@@ -223,6 +223,8 @@ def vllm_sampling_params(fmt, stop_ids, max_new_tokens, n_samples, temperature,
     else:
         common["stop"] = list(STOP_STRINGS)
     greedy = SamplingParams(temperature=0, max_tokens=max_new_tokens, **common)
+    if n_samples <= 0:               # greedy-only run
+        return greedy, None
     skw = dict(n=n_samples, temperature=temperature, max_tokens=max_new_tokens, **common)
     if top_p is not None:
         skw["top_p"] = top_p
@@ -234,6 +236,8 @@ def vllm_sampling_params(fmt, stop_ids, max_new_tokens, n_samples, temperature,
 def vllm_generate_chunk(llm, prompts, greedy_params, sampling_params):
     g = llm.generate(prompts, greedy_params)
     greedy = [(o.outputs[0].text, len(o.outputs[0].token_ids)) for o in g]
+    if sampling_params is None:      # greedy-only run
+        return greedy, None
     s = llm.generate(prompts, sampling_params)
     sampling = [[(c.text, len(c.token_ids)) for c in o.outputs] for o in s]
     return greedy, sampling
@@ -487,7 +491,8 @@ def main():
     p.add_argument("--stats_only", action="store_true")
     # Methodology overrides (default None → FORMAT_DEFAULTS[--format])
     p.add_argument("--max_new_tokens", type=int, default=None)
-    p.add_argument("--n_samples", type=int, default=N_SAMPLES)
+    p.add_argument("--n_samples", type=int, default=N_SAMPLES,
+                   help="pass@k sampling count; 0 = greedy-only (pass@1, no sampling pass — much faster).")
     p.add_argument("--temperature", type=float, default=None)
     p.add_argument("--top_p", type=float, default=None)
     p.add_argument("--top_k", type=int, default=None)
@@ -624,8 +629,9 @@ def main():
                 ex = ds_list[i]
                 _write_sample_rows(jsonl_path, ex, i, "greedy", [greedy[kk]],
                                    args.max_new_tokens, args.format, args.model)
-                _write_sample_rows(jsonl_path, ex, i, "sample", sampling[kk],
-                                   args.max_new_tokens, args.format, args.model)
+                if sampling is not None:
+                    _write_sample_rows(jsonl_path, ex, i, "sample", sampling[kk],
+                                       args.max_new_tokens, args.format, args.model)
             if auto_upload and args.upload_every:
                 upload_artifact(jsonl_path, quiet=True)
             print(f"  chunk done: {min(cs + chunk, len(pending))}/{len(pending)} pending problems")
@@ -643,14 +649,16 @@ def main():
                 gkw = dict(fmt=args.format, stop_ids=stop_ids, top_p=args.top_p, top_k=args.top_k,
                            repetition_penalty=args.repetition_penalty)
                 gres = generate_batch(model, tokenizer, prompts, 1, 0.0, args.max_new_tokens, **gkw)
-                sres = generate_batch(model, tokenizer, prompts, args.n_samples, args.temperature,
-                                      args.max_new_tokens, **gkw)
+                sres = (generate_batch(model, tokenizer, prompts, args.n_samples, args.temperature,
+                                       args.max_new_tokens, **gkw)
+                        if args.n_samples > 0 else None)
                 for j, i in enumerate(idxs):
                     ex = ds_list[i]
                     _write_sample_rows(jsonl_path, ex, i, "greedy", gres[j],
                                        args.max_new_tokens, args.format, args.model)
-                    _write_sample_rows(jsonl_path, ex, i, "sample", sres[j],
-                                       args.max_new_tokens, args.format, args.model)
+                    if sres is not None:
+                        _write_sample_rows(jsonl_path, ex, i, "sample", sres[j],
+                                           args.max_new_tokens, args.format, args.model)
             if auto_upload and args.upload_every:
                 upload_artifact(jsonl_path, quiet=True)
 
@@ -677,8 +685,10 @@ def main():
 
     print(f"\nResults: {results_path}\nSamples: {jsonl_path}\nSummary (git-tracked): {summary_path}")
     if live:
+        pk = (f"pass@{args.n_samples} {live['pass_at_k']:.2%}" if args.n_samples > 0
+              else "pass@k N/A (greedy-only run)")
         print(f"[live math-verify] greedy pass@1 {live['greedy_pass1']:.2%} | "
-              f"pass@{args.n_samples} {live['pass_at_k']:.2%} (rescore_math500.py for the record)")
+              f"{pk} (rescore_math500.py for the record)")
 
     if auto_upload:
         ok1 = upload_artifact(results_path)
