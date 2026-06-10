@@ -1,0 +1,47 @@
+{
+  "model": "heyalexchoi/qwen3-1.7b-math-sft",
+  "format": "chat",
+  "backend": "hf",
+  "hf_revision": "main",
+  "checkpoint_step": null,
+  "provenance": {
+    "git_commit": null,
+    "git_describe": null,
+    "git_dirty": false,
+    "command": "python scripts/math500_eval.py --model heyalexchoi/qwen3-1.7b-math-sft --format chat --backend hf --unique_id number_theory/572",
+    "weights_sha256": null,
+    "backend": "hf",
+    "vllm_version": null,
+    "transformers_version": "5.5.3",
+    "torch_version": "2.4.1+cu124",
+    "run_utc": "2026-06-07T16:05:12.907286Z"
+  },
+  "max_new_tokens": 8192,
+  "n_samples_pass8": 8,
+  "temperature": 0.6,
+  "top_p": 0.95,
+  "top_k": 20,
+  "repetition_penalty": 1.05,
+  "dataset_stats": {
+    "total": 1,
+    "by_level": {
+      "3": 1
+    },
+    "by_subject": {
+      "Number Theory": 1
+    }
+  },
+  "live_metrics_math_verify": {
+    "greedy_pass1": 1.0,
+    "pass_at_k": 1.0,
+    "n_problems": 1,
+    "by_level": {
+      "3": {
+        "greedy_pass1": 1.0,
+        "pass_at_k": 1.0,
+        "n": 1
+      }
+    }
+  },
+  "note": "Metrics are a LIVE convenience scoring; rescore_math500.py is authoritative. Full generations: see the *_results.json / *_samples.jsonl on HF."
+}
