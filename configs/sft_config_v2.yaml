@@ -13,11 +13,12 @@ eos_token: "<|im_end|>"
 # 2560 covers everything with wide margin (loader asserts nothing is truncated).
 max_seq_length: 2560
 
-# Training — effective batch 16 (same as v1) but short seqs allow real batch 8
+# Training — effective batch 16 (same as v1). batch 4 @ seq 2560 keeps the
+# fp32 CE logits transient (~6GB) comfortable on A40 48GB.
 num_train_epochs: 3
-per_device_train_batch_size: 8
-per_device_eval_batch_size: 8
-gradient_accumulation_steps: 2
+per_device_train_batch_size: 4
+per_device_eval_batch_size: 4
+gradient_accumulation_steps: 4
 learning_rate: 2.0e-5
 lr_scheduler_type: cosine
 warmup_ratio: 0.1
