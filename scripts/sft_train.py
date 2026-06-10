@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """
-SFT training on Qwen3-32B reasoning traces.
+SFT training — v2: concise-distillation traces (also supports v1 verbose-trace schema).
 
-Input:  data/traces/qwen32b_math_traces_rerun_mv_rescored.jsonl
-        Fields: problem, full_response (<think>...</think>\nsolution), correct_mathverify
-Output: outputs/sft_checkpoint/
+v2 input (default): data/concise/concise_sft_v2_trainable.jsonl — auto-downloaded from
+        HF dataset heyalexchoi/qwen3-math-concise-sft-v2 if missing locally.
+        Fields: problem, completion (string: '<think>...</think>\n\nsolution'). All
+        records are math-verify-gated upstream; no filtering needed here.
+v1 input: data/traces/qwen32b_math_traces_rerun_mv_rescored.jsonl
+        Fields: problem, full_response, correct_mathverify (filtered to True).
+Output: outputs/sft_v2_checkpoint/
 
 Uses TRL SFTTrainer with conversational prompt-completion format.
-SFTTrainer auto-applies Qwen3 chat template and masks prompt tokens.
-Only the assistant turn (<think>...</think> + solution) contributes to loss.
+SFTTrainer auto-applies the Qwen3 chat template and masks prompt tokens —
+only the assistant turn (<think>...</think> + solution) contributes to loss.
 
-Verified:
-- Qwen3-1.7B-Base has chat template built in (transformers >= 4.51.0 required)
-- Context length: 32,768 tokens (matches max_seq_length)
-- full_response format: '<think>\n{thinking}\n</think>\n{solution}' (confirmed in data)
-- Chat template boundary: '<|im_start|>assistant\n' at token position 9 in formatted text
+Stack: pinned per requirements-stack.txt (tf 5.10.2 / torch 2.11+cu129 / vllm 0.22.1).
+Run with --smoke first on any new pod: tiny train → save → reload check.
 """
 
 import argparse
@@ -47,47 +48,62 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def load_traces(data_path: str) -> Dataset:
+HF_DATASET_REPO = "heyalexchoi/qwen3-math-concise-sft-v2"
+
+
+def load_traces(data_path: str, max_seq_length: int) -> Dataset:
     """
     Load traces in TRL conversational prompt-completion format.
 
-    SFTTrainer handles:
-    - Applying Qwen3 chat template automatically
-    - Masking prompt tokens (only assistant turn trains)
+    Auto-detects schema per record:
+      v2: 'completion' string (already verify-gated upstream — no filtering)
+      v1: 'full_response' + correct_mathverify==True filter
 
-    Filters to correct_mathverify == True only.
+    If the v2 default path is missing locally, downloads it from the HF dataset repo.
+
+    SFTTrainer handles chat-template application and prompt masking.
     """
+    if not os.path.exists(data_path) and "concise_sft_v2_trainable" in data_path:
+        from huggingface_hub import hf_hub_download
+        logger.info(f"{data_path} not found locally — downloading from {HF_DATASET_REPO}")
+        Path(data_path).parent.mkdir(parents=True, exist_ok=True)
+        got = hf_hub_download(HF_DATASET_REPO, Path(data_path).name, repo_type="dataset")
+        os.symlink(got, data_path) if not os.path.exists(data_path) else None
+
     examples = []
     skipped = 0
     with open(data_path, "r") as f:
         for line in f:
             data = json.loads(line)
-            if not data.get("correct_mathverify", False):
+            if "completion" in data:  # v2 concise schema — pre-gated
+                target = data["completion"]
+            elif data.get("correct_mathverify", False):  # v1 verbose schema
+                target = data["full_response"]
+            else:
                 skipped += 1
                 continue
             examples.append({
                 "prompt": [{"role": "user", "content": data["problem"]}],
-                "completion": [{"role": "assistant", "content": data["full_response"]}],
+                "completion": [{"role": "assistant", "content": target}],
             })
 
-    logger.info(f"Loaded {len(examples)} correct examples ({skipped} skipped as incorrect)")
+    logger.info(f"Loaded {len(examples)} examples ({skipped} skipped as incorrect)")
 
-    # Warn about long examples that may cause OOM when paired in a batch.
-    # At max_seq_length=32768, batch=2: logits = 2 × 32768 × 152064 × 2B ≈ 40GB (OOM on A100).
-    # Rough token estimate: chars / 3.5. Threshold = 28k tokens (~90% of 32768).
-    WARN_CHARS = int(28000 * 3.5)  # ~98k chars
+    # Hard guard: nothing may exceed max_seq_length (truncation would corrupt targets —
+    # a cut-off completion teaches non-termination, the exact v1 disease).
+    # Rough estimate chars/3 is conservative vs the real tokenizer.
+    warn_chars = max_seq_length * 3
     long_examples = [
         i for i, ex in enumerate(examples)
-        if len(ex["completion"][0]["content"]) + len(ex["prompt"][0]["content"]) > WARN_CHARS
+        if len(ex["completion"][0]["content"]) + len(ex["prompt"][0]["content"]) > warn_chars
     ]
     if long_examples:
         logger.warning(
-            f"{len(long_examples)} examples exceed ~28k token estimate — "
-            f"may OOM with batch_size >= 2 at max_seq_length=32768. "
-            f"Indices: {long_examples[:10]}{'...' if len(long_examples) > 10 else ''}"
+            f"{len(long_examples)} examples may exceed max_seq_length={max_seq_length} "
+            f"(chars/3 estimate) and would be TRUNCATED. Indices: {long_examples[:10]}"
         )
     else:
-        logger.info("No examples exceed 28k token estimate. OOM risk from long sequences is low.")
+        logger.info(f"All examples fit max_seq_length={max_seq_length} (chars/3 estimate). No truncation.")
 
     return Dataset.from_list(examples)
 
@@ -119,11 +135,14 @@ def main():
     parser.add_argument(
         "--data",
         type=str,
-        default="data/traces/qwen32b_math_traces_rerun_mv_rescored.jsonl",
+        default="data/concise/concise_sft_v2_trainable.jsonl",
+        help="v2 concise traces (auto-downloads from HF if missing) or v1 verbose-trace jsonl",
     )
-    parser.add_argument("--output", type=str, default="/workspace/qwen3-math-rlvr/outputs/sft_checkpoint",
+    parser.add_argument("--output", type=str, default="/workspace/qwen3-math-rlvr/outputs/sft_v2_checkpoint",
         help="Output dir — use absolute path to guarantee writes land on the volume")
-    parser.add_argument("--config", type=str, default="configs/sft_config.yaml")
+    parser.add_argument("--config", type=str, default="configs/sft_config_v2.yaml")
+    parser.add_argument("--smoke", action="store_true",
+        help="Smoke test: 64 examples, 1 epoch, no wandb/hub — verifies TRL+tf stack and save path")
     parser.add_argument(
         "--resume_from_checkpoint",
         type=str,
@@ -139,7 +158,7 @@ def main():
     parser.add_argument(
         "--hub_repo_id",
         type=str,
-        default="heyalexchoi/qwen3-1.7b-math-sft",
+        default="heyalexchoi/qwen3-1.7b-math-sft-v2",
         help="HuggingFace Hub repo ID for push_to_hub",
     )
     args = parser.parse_args()
@@ -204,15 +223,18 @@ def main():
     logger.info(f"Loading model: {args.model}")
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
-        torch_dtype=torch.bfloat16,
-        attn_implementation=config.get("attn_implementation", "flash_attention_2"),
+        dtype=torch.bfloat16,  # tf 5.x kwarg (torch_dtype removed)
+        attn_implementation=config.get("attn_implementation", "sdpa"),
     )
     if config.get("gradient_checkpointing", True):
         model.gradient_checkpointing_enable()
 
     # Data — conversational prompt-completion format
     logger.info(f"Loading traces: {args.data}")
-    dataset = load_traces(args.data)
+    dataset = load_traces(args.data, config.get("max_seq_length", 2560))
+    if args.smoke:
+        dataset = dataset.shuffle(seed=42).select(range(64))
+        logger.info("SMOKE MODE: 64 examples, 1 epoch, no wandb/hub")
     split = dataset.train_test_split(test_size=0.05, seed=42)
     train_dataset = split["train"]
     eval_dataset = split["test"]
@@ -221,8 +243,9 @@ def main():
     # SFTConfig (extends TrainingArguments)
     sft_config = SFTConfig(
         output_dir=args.output,
-        max_length=config.get("max_seq_length", 32768),
-        num_train_epochs=config.get("num_train_epochs", 3),
+        max_length=config.get("max_seq_length", 2560),
+        eos_token=config.get("eos_token"),  # "<|im_end|>" — Qwen base + chat template (TRL handles tokenizer/generation_config)
+        num_train_epochs=1 if args.smoke else config.get("num_train_epochs", 3),
         per_device_train_batch_size=config.get("per_device_train_batch_size", 2),
         per_device_eval_batch_size=config.get("per_device_eval_batch_size", 2),
         gradient_accumulation_steps=config.get("gradient_accumulation_steps", 8),
@@ -239,8 +262,8 @@ def main():
         save_total_limit=config.get("save_total_limit", 1),
         seed=config.get("seed", 42),
         dataloader_num_workers=config.get("dataloader_num_workers", 4),
-        report_to="wandb",
-        run_name="sft-qwen3-1.7b-math-distill",
+        report_to="none" if args.smoke else "wandb",
+        run_name="sft-v2-qwen3-1.7b-math-concise",
         dataset_text_field=None,  # using prompt/completion format, not text field
         # HF Hub backup: push each checkpoint so we have recovery if pod dies
         push_to_hub=args.push_to_hub,

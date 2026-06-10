@@ -1,0 +1,37 @@
+# SFT v2 — Qwen3-1.7B-Base on concise-distillation traces
+# Dataset: heyalexchoi/qwen3-math-concise-sft-v2 (7,149 verify-gated, median 174 tok)
+# Stack: pinned per requirements-stack.txt (tf 5.10.2 / torch 2.11+cu129 / vllm 0.22.1)
+
+model_name_or_path: Qwen/Qwen3-1.7B-Base
+attn_implementation: sdpa            # flash-attn has no prebuilt wheel for torch 2.11; sdpa fine at 2.5k seq
+
+# EOS — REQUIRED for Qwen base + chat template: model must learn/emit <|im_end|>
+# as turn terminator and the saved generation_config must stop on it.
+eos_token: "<|im_end|>"
+
+# Sequence length: v2 completions are ≤ ~740 est tok (median 174) + problem + template.
+# 2560 covers everything with wide margin (loader asserts nothing is truncated).
+max_seq_length: 2560
+
+# Training — effective batch 16 (same as v1) but short seqs allow real batch 8
+num_train_epochs: 3
+per_device_train_batch_size: 8
+per_device_eval_batch_size: 8
+gradient_accumulation_steps: 2
+learning_rate: 2.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+weight_decay: 0.01
+max_grad_norm: 1.0
+
+bf16: true
+gradient_checkpointing: true
+optim: adamw_torch
+
+logging_steps: 10
+eval_steps: 100
+save_steps: 200
+save_total_limit: 2
+
+seed: 42
+dataloader_num_workers: 4
