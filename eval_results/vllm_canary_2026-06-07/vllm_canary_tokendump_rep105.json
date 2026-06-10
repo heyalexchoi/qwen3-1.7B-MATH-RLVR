@@ -1,0 +1,100 @@
+{
+  "vllm": "0.11.0",
+  "eos_id": 151645,
+  "think_close_ids": [
+    151668
+  ],
+  "rep_penalty": 1.05,
+  "results": [
+    {
+      "tag": "greedy_rep1.05",
+      "ntok": 8192,
+      "finish": "length",
+      "has_boxed": false,
+      "text_has_think_close": false,
+      "emits_eos_id": false,
+      "emits_think_close_id": false,
+      "text_tail": ".......................... ...           ....                                                                                                           . . . .               .                                                                                                                             "
+    },
+    {
+      "tag": "sample0",
+      "ntok": 8192,
+      "finish": "length",
+      "has_boxed": false,
+      "text_has_think_close": false,
+      "emits_eos_id": false,
+      "emits_think_close_id": false,
+      "text_tail": "66 166116166161 16 16 616 166 16 16 16 16 166 16166 16 166 1661616 16 666161616 16 1666161616166, which6 16 16166 16 16. 6.6 166. 1616 6 166.66.166 6 16. 16 16 166616.16. 16. 166. 6.16 16.6 166. 16.6 16. 6.16.16. 1. 6.16. 1.6 16.16. 1.16.16. 16. 16.6.6.16.1.6.16.16.1.16. 1.16.16.1. 1.1. 1.16.1.16.16"
+    },
+    {
+      "tag": "sample1",
+      "ntok": 8192,
+      "finish": "length",
+      "has_boxed": false,
+      "text_has_think_close": false,
+      "emits_eos_id": false,
+      "emits_think_close_id": false,
+      "text_tail": ", so 4, 9, which, , as 1, so, so, which,, so 3, we, which, which, and, and, and, and ,    ,  ,, , so  , , so.,,, we      , the ,,     ,, and, in,, and ,  ,,,,, so,    , in the ,  , so0, so,,,  , the,,,, please, so,        , the ,,  ,  ,,, we ,,, so, so,  , what,,  , so  , in 1,,  ,, so ,, ,  1, ,,, "
+    },
+    {
+      "tag": "sample2",
+      "ntok": 8192,
+      "finish": "length",
+      "has_boxed": false,
+      "text_has_think_close": false,
+      "emits_eos_id": false,
+      "emits_think_close_id": false,
+      "text_tail": "  \ufffd6   1           1 1 6  1 5 \u4ec0\u4e48\u610f\u601d  Figure 1. 10.  Now 2. 8 1. As 1 5   \ufffd7 5\n\n  \ufffd 12.  \ufffd...\n\n  # 1  \ufffd  # 5  \u2026  1  1 \u00a0 2.   8 1, but   1.                       1 1 1                       1 1 1 7   1. \u00a0 1. 1 \f 8.  A. 1. 9 1.  ... \u00a0   1 1 6 1. 1... 1. 4, which  1.  1.  7 7     2. 1. 6 umber           "
+    },
+    {
+      "tag": "sample3",
+      "ntok": 8192,
+      "finish": "length",
+      "has_boxed": false,
+      "text_has_think_close": false,
+      "emits_eos_id": false,
+      "emits_think_close_id": false,
+      "text_tail": "6 6..6 6. 6. 6.6 6. 6.6 6.6 6. 6.6 6.6 6.6. 6. 6. 6. 6. 6. 6.6 6. 6.6 6.6 6. 6. 6. 6. 6. 6. 6. Six 6.6 6. 6.6.6 6. 6. 6 6. 6. 6. 6. 6. 6. 6. 6. 6. 6. 6 6. 6. 6 6. 6. 6. 6 6 6. 6.6 6. 6. 6. 6. 6. 6 6. 6. 6. 6 6 6. 6. 6 6. 6. 6. 6. 6. 6... 6. 6. . 6. As 6. 6. 6. 6... 6 6.. 6..6 .. . So.. Now 6.. 6. 6."
+    },
+    {
+      "tag": "sample4",
+      "ntok": 8192,
+      "finish": "length",
+      "has_boxed": false,
+      "text_has_think_close": false,
+      "emits_eos_id": false,
+      "emits_think_close_id": false,
+      "text_tail": "1. [ 1. Let 1. 1. What 10. 1. 1. 1. 1. 1. 1. Now 1. So, 1. 1. 1. Let . Let 1. Which 1. Now 1. 1. Now 1. As 1. 1. 1. We  1. 1. 1. 1. Let 1. Let 1... What 1. So 1. 1. Let 1. 1. 1. Let 1. 1.5. What . 1. 1. 1. Now   1 1 1   . 1. Now . .                                                                    "
+    },
+    {
+      "tag": "sample5",
+      "ntok": 8192,
+      "finish": "length",
+      "has_boxed": false,
+      "text_has_think_close": false,
+      "emits_eos_id": false,
+      "emits_think_close_id": false,
+      "text_tail": ", and as, and and, and, but, and, as and and and i and and and, and this, so and, and and and, and it and and, and and and and, but and and and and and and, and and and, and, and, and this and, and, and and, but and, and it and and and and and and and, and, but. This and, and, and, and and, and, and"
+    },
+    {
+      "tag": "sample6",
+      "ntok": 8192,
+      "finish": "length",
+      "has_boxed": false,
+      "text_has_think_close": false,
+      "emits_eos_id": false,
+      "emits_think_close_id": false,
+      "text_tail": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n?\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n?\n\n\n\n\n\n\n\n?\n\n\n\n?\n\n 4\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n? 1\n\n\n\n\n\n\n\n\n\n?\n\n 4\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n?\n\n"
+    },
+    {
+      "tag": "sample7",
+      "ntok": 8192,
+      "finish": "length",
+      "has_boxed": false,
+      "text_has_think_close": false,
+      "emits_eos_id": false,
+      "emits_think_close_id": false,
+      "text_tail": "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ]
+}

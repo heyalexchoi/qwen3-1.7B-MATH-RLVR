@@ -1,0 +1,45 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PINNED STACK for Qwen3-1.7B math v2 — SFT train + vLLM eval/GRPO rollouts
+# Written by Claude Opus 4.8 — 2026-06-10.
+#
+# GOAL: train+save+eval+rollout v2 all under ONE transformers version so the v2
+# checkpoint is BORN vLLM-compatible. The v1 pain was a train/save tf (5.5.3) vs
+# vLLM-forced tf (4.56) MISMATCH that broke generation. Pinning both to tf 5.10.2
+# removes that gap. Inference half is VERIFIED WORKING (FINDINGS.md §6,
+# docs/vllm-stack-pin.md): vLLM 17/25 on MATH-500, comparable to HF 15/25.
+#
+# Driver: verified on A40 / driver 570.211 / CUDA 12.8. Install the **cu129** torch
+# build (default vLLM wheel is cu130 = CUDA-13 = dies on a 12.8 driver).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# --- VERIFIED inference half (do not float these) ---
+# vllm: install the cu129 wheel explicitly, NOT `pip install vllm` (that pulls cu130):
+#   pip install "https://github.com/vllm-project/vllm/releases/download/v0.22.1/vllm-0.22.1+cu129-cp38-abi3-manylinux_2_28_x86_64.whl" --extra-index-url https://download.pytorch.org/whl/cu129
+#   pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu129   # force cu129
+vllm==0.22.1            # +cu129 wheel
+torch==2.11.0           # +cu129 build
+transformers==5.10.2
+tokenizers==0.22.2
+accelerate==1.13.0
+numpy==2.1.2
+# pip uninstall -y torchvision   # base-image torchvision (torch2.8) crashes tf import
+
+# --- SFT/GRPO training half (TRL) ---
+# ⚠️ VERIFY-FIRST: TRL 1.0 trained v1 under tf 5.5.3 OK, but TRL vs tf 5.10.2 + torch
+# 2.11 is NOT yet smoke-tested. On the SFT pod, BEFORE the full run, confirm:
+#   python -c "from trl import SFTTrainer, SFTConfig; import transformers,torch; print('ok',transformers.__version__,torch.__version__)"
+#   + a 5-step tiny train to confirm save/load round-trips through vLLM.
+# If TRL pins an incompatible tf, prefer bumping TRL over downgrading tf (tf is the
+# pinned constraint here).
+trl>=1.0.0
+peft>=0.7.0
+datasets>=2.14.0
+wandb>=0.16.0
+
+# --- eval / data / utils ---
+math-verify[antlr4_13_2]   # primary scorer; NOTE signal.alarm() → run gate in MAIN thread only
+pandas>=2.0.0
+tqdm>=4.65.0
+jsonlines>=4.0.0
+pyyaml>=6.0
+anthropic>=0.40.0

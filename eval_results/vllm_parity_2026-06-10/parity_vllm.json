@@ -1,0 +1,263 @@
+{
+  "backend": "vllm",
+  "vllm": "0.22.1",
+  "transformers": "5.10.2",
+  "stop_ids": [
+    151645
+  ],
+  "records": [
+    {
+      "id": "test/algebra/1004.json",
+      "expected": "4",
+      "boxed": "4",
+      "ntok": 1506,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "he exponents equal:\n$$\n8 = 2x.\n$$\n\nSolving for $ x $:\n$$\nx = \\frac{8}{2} = 4.\n$$\n\n---\n\n### Final Answer\n\n$$\n\\boxed{4}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/101.json",
+      "expected": "x \\in [-2,7]",
+      "boxed": "[-2, 7]",
+      "ntok": 2368,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "x^2 - 5x - 14 \\leq 0\n$$  \nis the union of these intervals:\n\n$$\n[-2, 7].\n$$\n\n---\n\n### Final Answer\n\n$$\n\\boxed{[-2, 7]}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1031.json",
+      "expected": "\\frac{11}{2}",
+      "boxed": "5.5",
+      "ntok": 3841,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "umber system. Hence, the domain is $ x \\geq 5.5 $, and the **smallest real number** in the domain is:\n\n$$\n\\boxed{5.5}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1035.json",
+      "expected": "3",
+      "boxed": "",
+      "ntok": 8192,
+      "finish": "length",
+      "degenerate": true,
+      "tail": " - 2T = 3T - 2T = T. So the general solution is:\n\nTreek: T  \nSquig: 3T  \nGoolee: T\n\nTherefore, the weight of a squig is ",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1072.json",
+      "expected": "\\frac{243}{625}",
+      "boxed": "",
+      "ntok": 8192,
+      "finish": "length",
+      "degenerate": true,
+      "tail": "15,413.000... No. Maybe divide by 2: 256,608 \u00f7 2 = 128,304; 500,000 \u00f7 2 = 250,000. Still not integers. Maybe divide by 3",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1078.json",
+      "expected": "(-\\sqrt{3}, \\sqrt{3})",
+      "boxed": "(-\\sqrt{3}, \\sqrt{3})",
+      "ntok": 4268,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "Answer\n\nAll real numbers $x$ satisfying the original inequality lie in the interval:\n$$\n\\boxed{(-\\sqrt{3}, \\sqrt{3})}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1082.json",
+      "expected": "23",
+      "boxed": "",
+      "ntok": 8192,
+      "finish": "length",
+      "degenerate": true,
+      "tail": "to the first method, which is grouping them as (\u221a2 + \u221a3) + (1/\u221a2 + 1/\u221a3), then converting each term to denominator 6:\n\n\u221a",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/109.json",
+      "expected": "0",
+      "boxed": "0",
+      "ntok": 1464,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "Subtract 12 from both sides:\n\n$$\n2b = 0\n$$\n\nDivide both sides by 2:\n\n$$\nb = 0\n$$\n\n---\n\n### Final Answer\n\n$$\n\\boxed{0}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1098.json",
+      "expected": "6+9i",
+      "boxed": "6 + 9i",
+      "ntok": 1027,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "6 + (12i - 3i) = 6 + 9i\n$$\n\n---\n\n### Final Result\n\nAfter simplifying, the expression evaluates to:\n\n$$\n\\boxed{6 + 9i}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/114.json",
+      "expected": "4",
+      "boxed": "4",
+      "ntok": 1748,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "Evaluate the cube root\n\nSince $ 4^3 = 64 $, we have:\n$$\n64^{\\frac{1}{3}} = 4.\n$$\n\n---\n\n### Final Answer\n\n$$\n\\boxed{4}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1143.json",
+      "expected": "17",
+      "boxed": "",
+      "ntok": 8192,
+      "finish": "length",
+      "degenerate": true,
+      "tail": "f y = (1/2)x\u00b2 - 9\". So the origin is on the graph, so the distance is 0. Therefore, the answer is 0, so a = 0, and a\u00b2 = ",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1184.json",
+      "expected": "129",
+      "boxed": "129",
+      "ntok": 2312,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "10} = 129 $\n\nSince $ 129 > 125 $, the **first term** in the sequence that is **greater than 125** is:\n\n$$\n\\boxed{129}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1199.json",
+      "expected": "1",
+      "boxed": "1",
+      "ntok": 2053,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "\n\nThus, $ f^{-1}(6) = 2 $, and $ f^{-1}(2) = 1 $, confirming our earlier result.\n\n---\n\n### Final Answer\n\n$$\n\\boxed{1}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1214.json",
+      "expected": "1",
+      "boxed": "1",
+      "ntok": 1173,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "suming $ \\ln(3) \\neq 0 $):  \n$$\nk = 1.\n$$  \n\nThis confirms our earlier result.  \n\n---\n\n### Final Answer\n\n$$\n\\boxed{1}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1255.json",
+      "expected": "6",
+      "boxed": "6",
+      "ntok": 1530,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "\n### Final Answer\n\nAll methods converge to the same conclusion. Therefore, the value of $\\log_2 64$ is:\n\n$$\n\\boxed{6}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1265.json",
+      "expected": "\\frac{3}{2}",
+      "boxed": "\\dfrac{3}{2}",
+      "ntok": 1519,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "sqrt{4} = 2 $\n- $ 4^{3/2} = (4^{1/2})^3 = 2^3 = 8 $\n\nThis checks out!\n\n---\n\n### Final Answer\n\n$$\n\\boxed{\\dfrac{3}{2}}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1275.json",
+      "expected": "\\frac{\\sqrt{3}}{3}",
+      "boxed": "",
+      "ntok": 8192,
+      "finish": "length",
+      "degenerate": true,
+      "tail": ", maybe I can write 3^(2/3) as 3^(1/3)*3^(1/3), but that's just repeating. \n\nAlternatively, maybe I can write 3^(2/3) as",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1282.json",
+      "expected": "11",
+      "boxed": "21",
+      "ntok": 3122,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": " Final Conclusion\n\nThere are **21** real values of $ x $ for which the given expression is an integer.\n\n$$\n\\boxed{21}\n$$",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1303.json",
+      "expected": "4",
+      "boxed": "4",
+      "ntok": 1230,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "n the two values:\n$$\n\\text{Difference} = \\sqrt{64} - \\sqrt[3]{64} = 8 - 4 = 4\n$$\n\n---\n\n### Final Answer\n\n$$\n\\boxed{4}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1332.json",
+      "expected": "9",
+      "boxed": "9",
+      "ntok": 1611,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "# Final Answer\n\n$$\n\\boxed{9}\n$$\n\nAccording to Daniel's theory, **9 customers** would buy a television that costs $2500.\n",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1338.json",
+      "expected": "66",
+      "boxed": "",
+      "ntok": 8192,
+      "finish": "length",
+      "degenerate": true,
+      "tail": "aybe I made a mistake in the calculation?\n\nWait, let me check the calculation of 4096. 16\u00b3 is 4096. Therefore, cube root",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1339.json",
+      "expected": "600",
+      "boxed": "600",
+      "ntok": 1586,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "e both sides to solve for $ x $:\n\n$$\nx = (10\\sqrt{6})^2 = 100 \\cdot 6 = 600\n$$\n\n---\n\n### Final Answer\n\n$$\n\\boxed{600}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1343.json",
+      "expected": "256",
+      "boxed": "256",
+      "ntok": 3612,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": ":\n$$\n\\sqrt{2^{16}} = 2^{16/2} = 2^8.\n$$\n\nNow compute $ 2^8 $:\n$$\n2^8 = 256.\n$$\n\n---\n\n### Final Answer\n\n$$\n\\boxed{256}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1349.json",
+      "expected": "\\text{Evelyn}",
+      "boxed": "C",
+      "ntok": 2647,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "ith the **greatest total distance** will have the **greatest average speed**. Therefore, the answer is:\n\n$$\n\\boxed{C}\n$$",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1425.json",
+      "expected": "2",
+      "boxed": "2",
+      "ntok": 1495,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "= 3 $ and $ x = -3 $. These are the only two such values, and they are distinct.\n\n---\n\n### Final Answer\n\n$$\n\\boxed{2}\n$$",
+      "ok": true
+    }
+  ],
+  "acc": 17,
+  "n": 25,
+  "degenerate_count": 6
+}
