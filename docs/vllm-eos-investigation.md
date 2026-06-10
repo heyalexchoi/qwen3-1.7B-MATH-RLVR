@@ -1,5 +1,7 @@
 # vLLM checkpoint degeneration — tokenizer & EOS investigation
 
+> **⛔ SUPERSEDED (2026-06-10).** Root cause was the unpinned vLLM/transformers stack, not EOS config. Resolved & pinned in [`vllm-stack-pin.md`](vllm-stack-pin.md). Kept as investigation history.
+
 **Written by:** Claude Opus 4.8 · **Date:** 2026-06-02
 
 Fact-based record of a local (no-GPU) investigation into why the SFT checkpoint

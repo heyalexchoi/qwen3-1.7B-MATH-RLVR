@@ -1,5 +1,7 @@
 # SFT branch — evidence ledger (what was measured vs inferred vs unknowable)
 
+> **📁 HISTORICAL (2026-06-10).** The SFT-v1 questions this ledger tracked are settled: undertrained thinking model + broken eval stack. Current state: stack pinned ([`vllm-stack-pin.md`](vllm-stack-pin.md)), v2 dataset shipped (`heyalexchoi/qwen3-math-concise-sft-v2`).
+
 **Written by:** Claude Opus 4.8 · **Date:** 2026-06-01
 **Why this file exists:** the SFT status flip-flopped four times (see POC-RESULTS.md
 "Correction history") largely because methodology and data-provenance gaps let interpretation

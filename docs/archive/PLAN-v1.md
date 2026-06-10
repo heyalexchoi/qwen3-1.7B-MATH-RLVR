@@ -1,3 +1,5 @@
+> **📁 ARCHIVED 2026-06-10.** Historical journal (contains superseded claims and retractions — read banners carefully). Current entry point: repo `README.md`.
+
 # PLAN.md — Qwen3-1.7B Math RLVR
 
 > ⚠️ **Outdated in parts (2026-05-30).** The binary-search / "all collapsed" plan below was built on a

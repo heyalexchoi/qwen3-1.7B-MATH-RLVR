@@ -1,5 +1,7 @@
 # SFT Training Plan — Qwen3-1.7B MATH Distillation
 
+> **⛔ SUPERSEDED (2026-06-10).** This is the v1 SFT plan (32B verbose traces) — it produced the termination-disease checkpoint. v2 trains on the concise-distillation dataset instead; see [`distill-trace-framework.md`](distill-trace-framework.md) and the repo README.
+
 **Status:** Ready to execute  
 **Last updated:** 2026-04-09  
 **Input:** 7,154 correct traces (math-verify rescored, 32k token rerun)  
