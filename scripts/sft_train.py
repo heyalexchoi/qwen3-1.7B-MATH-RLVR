@@ -260,6 +260,11 @@ def main():
         eval_steps=config.get("eval_steps", 100),
         save_steps=config.get("save_steps", 500),
         save_total_limit=config.get("save_total_limit", 1),
+        # Keep the best-eval-loss checkpoint, not just the last (v2 run plateaued
+        # ~epoch 1.9 but trained to 3). Requires save_steps % eval_steps == 0.
+        load_best_model_at_end=False if args.smoke else config.get("load_best_model_at_end", False),
+        metric_for_best_model=config.get("metric_for_best_model", "eval_loss"),
+        greater_is_better=config.get("greater_is_better", False),
         seed=config.get("seed", 42),
         dataloader_num_workers=config.get("dataloader_num_workers", 4),
         report_to="none" if args.smoke else "wandb",
