@@ -13,7 +13,8 @@ RLVR (GRPO with verifiable math rewards) on Qwen3-1.7B, scored by
 | **SFT v1 (verbose 32B traces)** ❌ | "Termination disease": undertrained thinking model, generations peg the 8192 cap. Diagnosis in POC-RESULTS.md (SFT branch) |
 | **Inference stack** ✅ | Pinned & verified: vLLM 0.22.1 (cu129) / transformers 5.10.2 / torch 2.11+cu129 — [`docs/vllm-stack-pin.md`](docs/vllm-stack-pin.md) |
 | **Concise SFT-v2 dataset** ✅ | 7,149 verify-gated traces, ~13× shorter (median 174 tok) — [`heyalexchoi/qwen3-math-concise-sft-v2`](https://huggingface.co/datasets/heyalexchoi/qwen3-math-concise-sft-v2) |
-| **SFT v2 training** ⏳ | Next. Gate first: TRL smoke-test vs tf 5.10.2 + save→vLLM-load round-trip (see `requirements-stack.txt`) |
+| **SFT v2 training** ✅ | **49.4% MATH-500 greedy** (math-verify) — beats base (35.8), SFT v1 (40.2), and the GRPO POC (44.2). Termination cured: 500/500 clean stop, zero pegs. Model: [`heyalexchoi/qwen3-1.7b-math-sft-v2`](https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2) |
+| **GRPO v2 (from SFT v2)** ⏳ | Next: the original SFT→GRPO plan, now unblocked. Apply POC lessons: periodic greedy eval as early-stop, nonzero KL |
 
 ## Quickstart
 
