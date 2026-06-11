@@ -1,0 +1,247 @@
+2026-06-10 21:50:38,842 INFO Logging to logs/sft_train_20260610_215038.log
+2026-06-10 21:50:38,855 INFO Loading tokenizer: Qwen/Qwen3-1.7B-Base
+2026-06-10 21:50:39,083 INFO HTTP Request: HEAD https://huggingface.co/Qwen/Qwen3-1.7B-Base/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-10 21:50:39,097 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-1.7B-Base/ea980cb0a6c2ae4b936e82123acc929f1cec04c1/config.json "HTTP/1.1 200 OK"
+2026-06-10 21:50:39,261 INFO HTTP Request: HEAD https://huggingface.co/Qwen/Qwen3-1.7B-Base/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-10 21:50:39,270 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-1.7B-Base/ea980cb0a6c2ae4b936e82123acc929f1cec04c1/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-06-10 21:50:39,367 INFO HTTP Request: GET https://huggingface.co/api/models/Qwen/Qwen3-1.7B-Base/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-06-10 21:50:39,473 INFO HTTP Request: GET https://huggingface.co/api/models/Qwen/Qwen3-1.7B-Base/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-06-10 21:50:40,052 INFO HTTP Request: GET https://huggingface.co/api/models/Qwen/Qwen3-1.7B-Base "HTTP/1.1 200 OK"
+2026-06-10 21:50:40,055 INFO Loading model: Qwen/Qwen3-1.7B-Base
+2026-06-10 21:50:40,139 INFO HTTP Request: HEAD https://huggingface.co/Qwen/Qwen3-1.7B-Base/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-10 21:50:40,148 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-1.7B-Base/ea980cb0a6c2ae4b936e82123acc929f1cec04c1/config.json "HTTP/1.1 200 OK"
+2026-06-10 21:50:40,235 INFO HTTP Request: HEAD https://huggingface.co/Qwen/Qwen3-1.7B-Base/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-10 21:50:40,245 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-1.7B-Base/ea980cb0a6c2ae4b936e82123acc929f1cec04c1/config.json "HTTP/1.1 200 OK"
+2026-06-10 21:50:40,633 INFO HTTP Request: HEAD https://huggingface.co/Qwen/Qwen3-1.7B-Base/resolve/main/generation_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-10 21:50:40,663 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-1.7B-Base/ea980cb0a6c2ae4b936e82123acc929f1cec04c1/generation_config.json "HTTP/1.1 200 OK"
+2026-06-10 21:50:40,673 INFO Loading traces: data/concise/concise_sft_v2_trainable.jsonl
+2026-06-10 21:50:40,858 INFO Loaded 7149 examples (0 skipped as incorrect)
+2026-06-10 21:50:40,862 INFO All examples fit max_seq_length=2560 (chars/3 estimate). No truncation.
+2026-06-10 21:50:40,930 INFO Train: 6791 | Eval: 358
+[transformers] warmup_ratio is deprecated and will be removed in v5.2. Use `warmup_steps` instead.
+2026-06-10 21:50:56,928 INFO HTTP Request: POST https://huggingface.co/api/repos/create "HTTP/1.1 200 OK"
+2026-06-10 21:50:56,934 INFO Starting SFT training...
+[transformers] The tokenizer has new PAD/BOS/EOS tokens that differ from the model config and generation config. The model config and generation config were aligned accordingly, being updated with the tokenizer's values. Updated tokens: {'eos_token_id': 151645, 'bos_token_id': None, 'pad_token_id': 151643}.
+2026-06-10 21:50:57,172 INFO HTTP Request: HEAD https://huggingface.co/api/telemetry/trl/SFTTrainer "HTTP/1.1 200 OK"
+{'loss': '0.8572', 'grad_norm': '8.188', 'learning_rate': '1.406e-06', 'entropy': '0.789', 'num_tokens': '6.422e+04', 'mean_token_accuracy': '0.8151', 'epoch': '0.02356'}
+{'loss': '0.8755', 'grad_norm': '7.75', 'learning_rate': '2.969e-06', 'entropy': '0.8182', 'num_tokens': '1.251e+05', 'mean_token_accuracy': '0.8121', 'epoch': '0.04711'}
+{'loss': '0.7942', 'grad_norm': '5.688', 'learning_rate': '4.531e-06', 'entropy': '0.7746', 'num_tokens': '1.901e+05', 'mean_token_accuracy': '0.8236', 'epoch': '0.07067'}
+{'loss': '0.7249', 'grad_norm': '4.125', 'learning_rate': '6.094e-06', 'entropy': '0.7172', 'num_tokens': '2.53e+05', 'mean_token_accuracy': '0.8345', 'epoch': '0.09423'}
+{'loss': '0.6276', 'grad_norm': '4.156', 'learning_rate': '7.656e-06', 'entropy': '0.6181', 'num_tokens': '3.139e+05', 'mean_token_accuracy': '0.851', 'epoch': '0.1178'}
+{'loss': '0.5426', 'grad_norm': '2.875', 'learning_rate': '9.219e-06', 'entropy': '0.5262', 'num_tokens': '3.754e+05', 'mean_token_accuracy': '0.8646', 'epoch': '0.1413'}
+{'loss': '0.4835', 'grad_norm': '3.016', 'learning_rate': '1.078e-05', 'entropy': '0.4926', 'num_tokens': '4.383e+05', 'mean_token_accuracy': '0.872', 'epoch': '0.1649'}
+{'loss': '0.4642', 'grad_norm': '2.922', 'learning_rate': '1.234e-05', 'entropy': '0.4711', 'num_tokens': '4.975e+05', 'mean_token_accuracy': '0.8776', 'epoch': '0.1885'}
+{'loss': '0.4269', 'grad_norm': '2.438', 'learning_rate': '1.391e-05', 'entropy': '0.4559', 'num_tokens': '5.633e+05', 'mean_token_accuracy': '0.881', 'epoch': '0.212'}
+{'loss': '0.4037', 'grad_norm': '3.125', 'learning_rate': '1.547e-05', 'entropy': '0.4457', 'num_tokens': '6.308e+05', 'mean_token_accuracy': '0.8818', 'epoch': '0.2356'}
+{'eval_loss': '0.4042', 'eval_runtime': '18.28', 'eval_samples_per_second': '19.59', 'eval_steps_per_second': '4.925', 'eval_entropy': '0.4386', 'eval_num_tokens': '6.308e+05', 'eval_mean_token_accuracy': '0.8825', 'epoch': '0.2356'}
+{'loss': '0.3886', 'grad_norm': '2.844', 'learning_rate': '1.703e-05', 'entropy': '0.4299', 'num_tokens': '6.94e+05', 'mean_token_accuracy': '0.887', 'epoch': '0.2591'}
+{'loss': '0.3889', 'grad_norm': '2.734', 'learning_rate': '1.859e-05', 'entropy': '0.4414', 'num_tokens': '7.569e+05', 'mean_token_accuracy': '0.8886', 'epoch': '0.2827'}
+{'loss': '0.3493', 'grad_norm': '2.812', 'learning_rate': '2e-05', 'entropy': '0.4031', 'num_tokens': '8.228e+05', 'mean_token_accuracy': '0.8948', 'epoch': '0.3062'}
+{'loss': '0.3169', 'grad_norm': '3.047', 'learning_rate': '2e-05', 'entropy': '0.368', 'num_tokens': '8.849e+05', 'mean_token_accuracy': '0.9011', 'epoch': '0.3298'}
+{'loss': '0.3217', 'grad_norm': '2.438', 'learning_rate': '1.998e-05', 'entropy': '0.3626', 'num_tokens': '9.475e+05', 'mean_token_accuracy': '0.898', 'epoch': '0.3534'}
+{'loss': '0.352', 'grad_norm': '2.625', 'learning_rate': '1.996e-05', 'entropy': '0.3661', 'num_tokens': '1.008e+06', 'mean_token_accuracy': '0.8927', 'epoch': '0.3769'}
+{'loss': '0.3201', 'grad_norm': '2.547', 'learning_rate': '1.994e-05', 'entropy': '0.3507', 'num_tokens': '1.071e+06', 'mean_token_accuracy': '0.9024', 'epoch': '0.4005'}
+{'loss': '0.3233', 'grad_norm': '2.703', 'learning_rate': '1.99e-05', 'entropy': '0.3369', 'num_tokens': '1.131e+06', 'mean_token_accuracy': '0.8968', 'epoch': '0.424'}
+{'loss': '0.3283', 'grad_norm': '2.688', 'learning_rate': '1.986e-05', 'entropy': '0.3454', 'num_tokens': '1.193e+06', 'mean_token_accuracy': '0.8981', 'epoch': '0.4476'}
+{'loss': '0.3301', 'grad_norm': '3.047', 'learning_rate': '1.981e-05', 'entropy': '0.3511', 'num_tokens': '1.254e+06', 'mean_token_accuracy': '0.8966', 'epoch': '0.4711'}
+{'eval_loss': '0.3216', 'eval_runtime': '18', 'eval_samples_per_second': '19.89', 'eval_steps_per_second': '5', 'eval_entropy': '0.34', 'eval_num_tokens': '1.254e+06', 'eval_mean_token_accuracy': '0.8995', 'epoch': '0.4711'}
+2026-06-10 22:02:05,197 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:02:17,495 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:02:17,699 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:02:17,810 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+2026-06-10 22:02:17,921 INFO HTTP Request: GET https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/xet-write-token/main "HTTP/1.1 200 OK"
+{'loss': '0.3317', 'grad_norm': '2.891', 'learning_rate': '1.975e-05', 'entropy': '0.3474', 'num_tokens': '1.316e+06', 'mean_token_accuracy': '0.8964', 'epoch': '0.4947'}
+2026-06-10 22:02:38,655 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.3198', 'grad_norm': '2.625', 'learning_rate': '1.969e-05', 'entropy': '0.3416', 'num_tokens': '1.378e+06', 'mean_token_accuracy': '0.9011', 'epoch': '0.5183'}
+2026-06-10 22:03:03,552 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:03:03,641 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+{'loss': '0.3257', 'grad_norm': '2.75', 'learning_rate': '1.962e-05', 'entropy': '0.3406', 'num_tokens': '1.443e+06', 'mean_token_accuracy': '0.8986', 'epoch': '0.5418'}
+2026-06-10 22:03:38,247 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.2927', 'grad_norm': '2.406', 'learning_rate': '1.954e-05', 'entropy': '0.3141', 'num_tokens': '1.507e+06', 'mean_token_accuracy': '0.9062', 'epoch': '0.5654'}
+{'loss': '0.3229', 'grad_norm': '2.797', 'learning_rate': '1.946e-05', 'entropy': '0.3345', 'num_tokens': '1.569e+06', 'mean_token_accuracy': '0.8978', 'epoch': '0.5889'}
+{'loss': '0.3089', 'grad_norm': '2.844', 'learning_rate': '1.936e-05', 'entropy': '0.3192', 'num_tokens': '1.632e+06', 'mean_token_accuracy': '0.9027', 'epoch': '0.6125'}
+{'loss': '0.3087', 'grad_norm': '2.844', 'learning_rate': '1.926e-05', 'entropy': '0.3232', 'num_tokens': '1.694e+06', 'mean_token_accuracy': '0.9009', 'epoch': '0.636'}
+{'loss': '0.293', 'grad_norm': '2.219', 'learning_rate': '1.916e-05', 'entropy': '0.3136', 'num_tokens': '1.754e+06', 'mean_token_accuracy': '0.9052', 'epoch': '0.6596'}
+{'loss': '0.2982', 'grad_norm': '2.062', 'learning_rate': '1.904e-05', 'entropy': '0.3061', 'num_tokens': '1.817e+06', 'mean_token_accuracy': '0.9027', 'epoch': '0.6832'}
+{'loss': '0.284', 'grad_norm': '2.172', 'learning_rate': '1.892e-05', 'entropy': '0.2995', 'num_tokens': '1.879e+06', 'mean_token_accuracy': '0.9067', 'epoch': '0.7067'}
+{'eval_loss': '0.3064', 'eval_runtime': '18.21', 'eval_samples_per_second': '19.66', 'eval_steps_per_second': '4.942', 'eval_entropy': '0.3233', 'eval_num_tokens': '1.879e+06', 'eval_mean_token_accuracy': '0.902', 'epoch': '0.7067'}
+{'loss': '0.3215', 'grad_norm': '2.375', 'learning_rate': '1.88e-05', 'entropy': '0.3319', 'num_tokens': '1.94e+06', 'mean_token_accuracy': '0.8982', 'epoch': '0.7303'}
+{'loss': '0.3185', 'grad_norm': '3', 'learning_rate': '1.866e-05', 'entropy': '0.3286', 'num_tokens': '2.002e+06', 'mean_token_accuracy': '0.898', 'epoch': '0.7538'}
+{'loss': '0.3293', 'grad_norm': '2.391', 'learning_rate': '1.852e-05', 'entropy': '0.3325', 'num_tokens': '2.066e+06', 'mean_token_accuracy': '0.8976', 'epoch': '0.7774'}
+{'loss': '0.2969', 'grad_norm': '1.945', 'learning_rate': '1.838e-05', 'entropy': '0.3106', 'num_tokens': '2.128e+06', 'mean_token_accuracy': '0.9043', 'epoch': '0.8009'}
+{'loss': '0.3048', 'grad_norm': '3.453', 'learning_rate': '1.822e-05', 'entropy': '0.3136', 'num_tokens': '2.192e+06', 'mean_token_accuracy': '0.9042', 'epoch': '0.8245'}
+{'loss': '0.2809', 'grad_norm': '2.359', 'learning_rate': '1.806e-05', 'entropy': '0.2915', 'num_tokens': '2.257e+06', 'mean_token_accuracy': '0.9083', 'epoch': '0.8481'}
+{'loss': '0.312', 'grad_norm': '3.031', 'learning_rate': '1.79e-05', 'entropy': '0.3191', 'num_tokens': '2.319e+06', 'mean_token_accuracy': '0.9014', 'epoch': '0.8716'}
+{'loss': '0.3044', 'grad_norm': '2.75', 'learning_rate': '1.773e-05', 'entropy': '0.3125', 'num_tokens': '2.383e+06', 'mean_token_accuracy': '0.9027', 'epoch': '0.8952'}
+{'loss': '0.3093', 'grad_norm': '2.359', 'learning_rate': '1.755e-05', 'entropy': '0.3071', 'num_tokens': '2.445e+06', 'mean_token_accuracy': '0.9017', 'epoch': '0.9187'}
+{'loss': '0.2929', 'grad_norm': '2.406', 'learning_rate': '1.737e-05', 'entropy': '0.3084', 'num_tokens': '2.504e+06', 'mean_token_accuracy': '0.9052', 'epoch': '0.9423'}
+{'eval_loss': '0.2992', 'eval_runtime': '17.71', 'eval_samples_per_second': '20.21', 'eval_steps_per_second': '5.082', 'eval_entropy': '0.3097', 'eval_num_tokens': '2.504e+06', 'eval_mean_token_accuracy': '0.9039', 'epoch': '0.9423'}
+2026-06-10 22:12:56,965 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:13:01,553 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:13:01,666 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:13:01,759 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+2026-06-10 22:13:22,164 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.305', 'grad_norm': '2.25', 'learning_rate': '1.718e-05', 'entropy': '0.3116', 'num_tokens': '2.568e+06', 'mean_token_accuracy': '0.9009', 'epoch': '0.9658'}
+2026-06-10 22:13:43,768 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:13:43,860 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+{'loss': '0.2944', 'grad_norm': '2.359', 'learning_rate': '1.699e-05', 'entropy': '0.2945', 'num_tokens': '2.627e+06', 'mean_token_accuracy': '0.9073', 'epoch': '0.9894'}
+{'loss': '0.2622', 'grad_norm': '2', 'learning_rate': '1.679e-05', 'entropy': '0.2838', 'num_tokens': '2.684e+06', 'mean_token_accuracy': '0.9128', 'epoch': '1.012'}
+2026-06-10 22:14:19,467 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.2695', 'grad_norm': '2.375', 'learning_rate': '1.659e-05', 'entropy': '0.2842', 'num_tokens': '2.746e+06', 'mean_token_accuracy': '0.9122', 'epoch': '1.035'}
+{'loss': '0.2568', 'grad_norm': '2.531', 'learning_rate': '1.638e-05', 'entropy': '0.2625', 'num_tokens': '2.807e+06', 'mean_token_accuracy': '0.9154', 'epoch': '1.059'}
+{'loss': '0.2806', 'grad_norm': '2.594', 'learning_rate': '1.616e-05', 'entropy': '0.2845', 'num_tokens': '2.867e+06', 'mean_token_accuracy': '0.9091', 'epoch': '1.082'}
+{'loss': '0.266', 'grad_norm': '2.672', 'learning_rate': '1.595e-05', 'entropy': '0.2866', 'num_tokens': '2.933e+06', 'mean_token_accuracy': '0.9122', 'epoch': '1.106'}
+{'loss': '0.259', 'grad_norm': '2.391', 'learning_rate': '1.572e-05', 'entropy': '0.2711', 'num_tokens': '2.997e+06', 'mean_token_accuracy': '0.9145', 'epoch': '1.13'}
+{'loss': '0.2865', 'grad_norm': '2.781', 'learning_rate': '1.55e-05', 'entropy': '0.2908', 'num_tokens': '3.058e+06', 'mean_token_accuracy': '0.908', 'epoch': '1.153'}
+{'loss': '0.2643', 'grad_norm': '2.766', 'learning_rate': '1.527e-05', 'entropy': '0.2772', 'num_tokens': '3.12e+06', 'mean_token_accuracy': '0.9123', 'epoch': '1.177'}
+{'eval_loss': '0.2985', 'eval_runtime': '17.84', 'eval_samples_per_second': '20.07', 'eval_steps_per_second': '5.044', 'eval_entropy': '0.2754', 'eval_num_tokens': '3.12e+06', 'eval_mean_token_accuracy': '0.9042', 'epoch': '1.177'}
+{'loss': '0.2712', 'grad_norm': '2.344', 'learning_rate': '1.503e-05', 'entropy': '0.2738', 'num_tokens': '3.182e+06', 'mean_token_accuracy': '0.9124', 'epoch': '1.2'}
+{'loss': '0.2647', 'grad_norm': '2.781', 'learning_rate': '1.479e-05', 'entropy': '0.2747', 'num_tokens': '3.244e+06', 'mean_token_accuracy': '0.9137', 'epoch': '1.224'}
+{'loss': '0.26', 'grad_norm': '2.359', 'learning_rate': '1.455e-05', 'entropy': '0.2726', 'num_tokens': '3.304e+06', 'mean_token_accuracy': '0.9161', 'epoch': '1.247'}
+{'loss': '0.2692', 'grad_norm': '2.703', 'learning_rate': '1.431e-05', 'entropy': '0.2745', 'num_tokens': '3.368e+06', 'mean_token_accuracy': '0.9128', 'epoch': '1.271'}
+{'loss': '0.263', 'grad_norm': '2.562', 'learning_rate': '1.406e-05', 'entropy': '0.2687', 'num_tokens': '3.431e+06', 'mean_token_accuracy': '0.9146', 'epoch': '1.294'}
+{'loss': '0.278', 'grad_norm': '2.531', 'learning_rate': '1.38e-05', 'entropy': '0.2892', 'num_tokens': '3.492e+06', 'mean_token_accuracy': '0.9086', 'epoch': '1.318'}
+{'loss': '0.2781', 'grad_norm': '2.125', 'learning_rate': '1.355e-05', 'entropy': '0.2815', 'num_tokens': '3.561e+06', 'mean_token_accuracy': '0.9099', 'epoch': '1.342'}
+{'loss': '0.2688', 'grad_norm': '2.781', 'learning_rate': '1.329e-05', 'entropy': '0.279', 'num_tokens': '3.624e+06', 'mean_token_accuracy': '0.9135', 'epoch': '1.365'}
+{'loss': '0.2645', 'grad_norm': '3', 'learning_rate': '1.303e-05', 'entropy': '0.2694', 'num_tokens': '3.684e+06', 'mean_token_accuracy': '0.9133', 'epoch': '1.389'}
+{'loss': '0.2562', 'grad_norm': '2.406', 'learning_rate': '1.277e-05', 'entropy': '0.2717', 'num_tokens': '3.746e+06', 'mean_token_accuracy': '0.9155', 'epoch': '1.412'}
+{'eval_loss': '0.296', 'eval_runtime': '17.7', 'eval_samples_per_second': '20.23', 'eval_steps_per_second': '5.085', 'eval_entropy': '0.2753', 'eval_num_tokens': '3.746e+06', 'eval_mean_token_accuracy': '0.905', 'epoch': '1.412'}
+2026-06-10 22:23:38,245 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:23:42,714 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:23:42,972 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:23:43,071 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+2026-06-10 22:23:43,141 INFO HTTP Request: GET https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/xet-write-token/main "HTTP/1.1 200 OK"
+2026-06-10 22:24:03,259 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.279', 'grad_norm': '2.312', 'learning_rate': '1.251e-05', 'entropy': '0.2876', 'num_tokens': '3.806e+06', 'mean_token_accuracy': '0.9099', 'epoch': '1.436'}
+2026-06-10 22:24:27,147 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:24:27,239 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+{'loss': '0.2476', 'grad_norm': '2.188', 'learning_rate': '1.224e-05', 'entropy': '0.2532', 'num_tokens': '3.871e+06', 'mean_token_accuracy': '0.9189', 'epoch': '1.459'}
+2026-06-10 22:25:00,203 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.2643', 'grad_norm': '2.766', 'learning_rate': '1.197e-05', 'entropy': '0.2659', 'num_tokens': '3.933e+06', 'mean_token_accuracy': '0.9132', 'epoch': '1.483'}
+{'loss': '0.2832', 'grad_norm': '2.375', 'learning_rate': '1.17e-05', 'entropy': '0.2881', 'num_tokens': '3.998e+06', 'mean_token_accuracy': '0.9094', 'epoch': '1.506'}
+{'loss': '0.2565', 'grad_norm': '2.797', 'learning_rate': '1.143e-05', 'entropy': '0.2654', 'num_tokens': '4.064e+06', 'mean_token_accuracy': '0.9149', 'epoch': '1.53'}
+{'loss': '0.2672', 'grad_norm': '2.609', 'learning_rate': '1.116e-05', 'entropy': '0.2707', 'num_tokens': '4.123e+06', 'mean_token_accuracy': '0.9134', 'epoch': '1.554'}
+{'loss': '0.2587', 'grad_norm': '2.469', 'learning_rate': '1.089e-05', 'entropy': '0.2696', 'num_tokens': '4.19e+06', 'mean_token_accuracy': '0.915', 'epoch': '1.577'}
+{'loss': '0.2709', 'grad_norm': '2.422', 'learning_rate': '1.062e-05', 'entropy': '0.2758', 'num_tokens': '4.254e+06', 'mean_token_accuracy': '0.9112', 'epoch': '1.601'}
+{'loss': '0.2759', 'grad_norm': '2.266', 'learning_rate': '1.034e-05', 'entropy': '0.2775', 'num_tokens': '4.319e+06', 'mean_token_accuracy': '0.9095', 'epoch': '1.624'}
+{'loss': '0.275', 'grad_norm': '2.406', 'learning_rate': '1.007e-05', 'entropy': '0.2839', 'num_tokens': '4.383e+06', 'mean_token_accuracy': '0.9111', 'epoch': '1.648'}
+{'eval_loss': '0.294', 'eval_runtime': '17.75', 'eval_samples_per_second': '20.16', 'eval_steps_per_second': '5.069', 'eval_entropy': '0.2773', 'eval_num_tokens': '4.383e+06', 'eval_mean_token_accuracy': '0.9054', 'epoch': '1.648'}
+{'loss': '0.2523', 'grad_norm': '2.906', 'learning_rate': '9.795e-06', 'entropy': '0.2621', 'num_tokens': '4.443e+06', 'mean_token_accuracy': '0.918', 'epoch': '1.671'}
+{'loss': '0.2503', 'grad_norm': '2.703', 'learning_rate': '9.521e-06', 'entropy': '0.2617', 'num_tokens': '4.507e+06', 'mean_token_accuracy': '0.9162', 'epoch': '1.695'}
+{'loss': '0.2497', 'grad_norm': '2.391', 'learning_rate': '9.247e-06', 'entropy': '0.2569', 'num_tokens': '4.569e+06', 'mean_token_accuracy': '0.9181', 'epoch': '1.718'}
+{'loss': '0.2639', 'grad_norm': '2.391', 'learning_rate': '8.975e-06', 'entropy': '0.2656', 'num_tokens': '4.63e+06', 'mean_token_accuracy': '0.9151', 'epoch': '1.742'}
+{'loss': '0.2659', 'grad_norm': '3.094', 'learning_rate': '8.703e-06', 'entropy': '0.2763', 'num_tokens': '4.69e+06', 'mean_token_accuracy': '0.9136', 'epoch': '1.766'}
+{'loss': '0.2586', 'grad_norm': '2.438', 'learning_rate': '8.432e-06', 'entropy': '0.2681', 'num_tokens': '4.753e+06', 'mean_token_accuracy': '0.9142', 'epoch': '1.789'}
+{'loss': '0.2617', 'grad_norm': '2.875', 'learning_rate': '8.162e-06', 'entropy': '0.2716', 'num_tokens': '4.812e+06', 'mean_token_accuracy': '0.9131', 'epoch': '1.813'}
+{'loss': '0.2425', 'grad_norm': '2.344', 'learning_rate': '7.893e-06', 'entropy': '0.2489', 'num_tokens': '4.878e+06', 'mean_token_accuracy': '0.9222', 'epoch': '1.836'}
+{'loss': '0.267', 'grad_norm': '2.328', 'learning_rate': '7.626e-06', 'entropy': '0.2687', 'num_tokens': '4.938e+06', 'mean_token_accuracy': '0.9125', 'epoch': '1.86'}
+{'loss': '0.2599', 'grad_norm': '2.547', 'learning_rate': '7.361e-06', 'entropy': '0.2691', 'num_tokens': '5.001e+06', 'mean_token_accuracy': '0.9151', 'epoch': '1.883'}
+{'eval_loss': '0.2937', 'eval_runtime': '18.21', 'eval_samples_per_second': '19.66', 'eval_steps_per_second': '4.941', 'eval_entropy': '0.2678', 'eval_num_tokens': '5.001e+06', 'eval_mean_token_accuracy': '0.9055', 'epoch': '1.883'}
+2026-06-10 22:34:23,855 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:34:28,530 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:34:28,690 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:34:28,778 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+2026-06-10 22:34:48,788 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.2661', 'grad_norm': '2.562', 'learning_rate': '7.098e-06', 'entropy': '0.2673', 'num_tokens': '5.061e+06', 'mean_token_accuracy': '0.9127', 'epoch': '1.907'}
+2026-06-10 22:35:10,120 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:35:10,376 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+{'loss': '0.2661', 'grad_norm': '2.828', 'learning_rate': '6.837e-06', 'entropy': '0.2683', 'num_tokens': '5.126e+06', 'mean_token_accuracy': '0.9129', 'epoch': '1.931'}
+2026-06-10 22:35:42,092 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.2592', 'grad_norm': '2.484', 'learning_rate': '6.578e-06', 'entropy': '0.2682', 'num_tokens': '5.186e+06', 'mean_token_accuracy': '0.9146', 'epoch': '1.954'}
+{'loss': '0.2597', 'grad_norm': '2.266', 'learning_rate': '6.322e-06', 'entropy': '0.2684', 'num_tokens': '5.25e+06', 'mean_token_accuracy': '0.9136', 'epoch': '1.978'}
+{'loss': '0.2497', 'grad_norm': '3.359', 'learning_rate': '6.069e-06', 'entropy': '0.2581', 'num_tokens': '5.307e+06', 'mean_token_accuracy': '0.9169', 'epoch': '2'}
+{'loss': '0.2417', 'grad_norm': '2.375', 'learning_rate': '5.819e-06', 'entropy': '0.2591', 'num_tokens': '5.368e+06', 'mean_token_accuracy': '0.9204', 'epoch': '2.024'}
+{'loss': '0.2392', 'grad_norm': '2.25', 'learning_rate': '5.571e-06', 'entropy': '0.2578', 'num_tokens': '5.433e+06', 'mean_token_accuracy': '0.9218', 'epoch': '2.047'}
+{'loss': '0.2517', 'grad_norm': '2.047', 'learning_rate': '5.328e-06', 'entropy': '0.2706', 'num_tokens': '5.496e+06', 'mean_token_accuracy': '0.9173', 'epoch': '2.071'}
+{'loss': '0.2442', 'grad_norm': '3.203', 'learning_rate': '5.087e-06', 'entropy': '0.2576', 'num_tokens': '5.559e+06', 'mean_token_accuracy': '0.9185', 'epoch': '2.094'}
+{'loss': '0.2408', 'grad_norm': '2.359', 'learning_rate': '4.851e-06', 'entropy': '0.2524', 'num_tokens': '5.622e+06', 'mean_token_accuracy': '0.9208', 'epoch': '2.118'}
+{'eval_loss': '0.2944', 'eval_runtime': '17.66', 'eval_samples_per_second': '20.27', 'eval_steps_per_second': '5.097', 'eval_entropy': '0.2593', 'eval_num_tokens': '5.622e+06', 'eval_mean_token_accuracy': '0.9055', 'epoch': '2.118'}
+{'loss': '0.2413', 'grad_norm': '2.531', 'learning_rate': '4.618e-06', 'entropy': '0.2511', 'num_tokens': '5.683e+06', 'mean_token_accuracy': '0.922', 'epoch': '2.141'}
+{'loss': '0.2475', 'grad_norm': '2.266', 'learning_rate': '4.389e-06', 'entropy': '0.2589', 'num_tokens': '5.747e+06', 'mean_token_accuracy': '0.9187', 'epoch': '2.165'}
+{'loss': '0.2422', 'grad_norm': '2.484', 'learning_rate': '4.164e-06', 'entropy': '0.2502', 'num_tokens': '5.807e+06', 'mean_token_accuracy': '0.9202', 'epoch': '2.188'}
+{'loss': '0.2399', 'grad_norm': '2.734', 'learning_rate': '3.944e-06', 'entropy': '0.2452', 'num_tokens': '5.865e+06', 'mean_token_accuracy': '0.9202', 'epoch': '2.212'}
+{'loss': '0.2392', 'grad_norm': '2.75', 'learning_rate': '3.728e-06', 'entropy': '0.2479', 'num_tokens': '5.926e+06', 'mean_token_accuracy': '0.9211', 'epoch': '2.236'}
+{'loss': '0.2541', 'grad_norm': '2.25', 'learning_rate': '3.518e-06', 'entropy': '0.2599', 'num_tokens': '5.991e+06', 'mean_token_accuracy': '0.9165', 'epoch': '2.259'}
+{'loss': '0.2514', 'grad_norm': '2.484', 'learning_rate': '3.311e-06', 'entropy': '0.2582', 'num_tokens': '6.058e+06', 'mean_token_accuracy': '0.9171', 'epoch': '2.283'}
+{'loss': '0.2482', 'grad_norm': '2.656', 'learning_rate': '3.11e-06', 'entropy': '0.2565', 'num_tokens': '6.122e+06', 'mean_token_accuracy': '0.9191', 'epoch': '2.306'}
+{'loss': '0.2628', 'grad_norm': '2.812', 'learning_rate': '2.914e-06', 'entropy': '0.2702', 'num_tokens': '6.184e+06', 'mean_token_accuracy': '0.9137', 'epoch': '2.33'}
+{'loss': '0.258', 'grad_norm': '2.547', 'learning_rate': '2.724e-06', 'entropy': '0.2571', 'num_tokens': '6.247e+06', 'mean_token_accuracy': '0.9155', 'epoch': '2.353'}
+{'eval_loss': '0.2947', 'eval_runtime': '17.73', 'eval_samples_per_second': '20.19', 'eval_steps_per_second': '5.076', 'eval_entropy': '0.2593', 'eval_num_tokens': '6.247e+06', 'eval_mean_token_accuracy': '0.9056', 'epoch': '2.353'}
+2026-06-10 22:45:13,560 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:45:17,406 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:45:17,498 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:45:17,598 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+2026-06-10 22:45:17,673 INFO HTTP Request: GET https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/xet-write-token/main "HTTP/1.1 200 OK"
+2026-06-10 22:45:38,144 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.236', 'grad_norm': '2.266', 'learning_rate': '2.539e-06', 'entropy': '0.2447', 'num_tokens': '6.31e+06', 'mean_token_accuracy': '0.9227', 'epoch': '2.377'}
+2026-06-10 22:45:59,326 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:45:59,412 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+{'loss': '0.239', 'grad_norm': '2.609', 'learning_rate': '2.359e-06', 'entropy': '0.2527', 'num_tokens': '6.375e+06', 'mean_token_accuracy': '0.9209', 'epoch': '2.4'}
+2026-06-10 22:46:32,032 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.2374', 'grad_norm': '2.672', 'learning_rate': '2.185e-06', 'entropy': '0.2551', 'num_tokens': '6.437e+06', 'mean_token_accuracy': '0.9204', 'epoch': '2.424'}
+{'loss': '0.2733', 'grad_norm': '2.938', 'learning_rate': '2.017e-06', 'entropy': '0.2791', 'num_tokens': '6.499e+06', 'mean_token_accuracy': '0.9117', 'epoch': '2.448'}
+{'loss': '0.2297', 'grad_norm': '2.375', 'learning_rate': '1.855e-06', 'entropy': '0.2407', 'num_tokens': '6.563e+06', 'mean_token_accuracy': '0.9236', 'epoch': '2.471'}
+{'loss': '0.2534', 'grad_norm': '2.438', 'learning_rate': '1.7e-06', 'entropy': '0.2621', 'num_tokens': '6.626e+06', 'mean_token_accuracy': '0.9164', 'epoch': '2.495'}
+{'loss': '0.251', 'grad_norm': '2.484', 'learning_rate': '1.55e-06', 'entropy': '0.2539', 'num_tokens': '6.689e+06', 'mean_token_accuracy': '0.9186', 'epoch': '2.518'}
+{'loss': '0.2429', 'grad_norm': '2.312', 'learning_rate': '1.407e-06', 'entropy': '0.2515', 'num_tokens': '6.752e+06', 'mean_token_accuracy': '0.9194', 'epoch': '2.542'}
+{'loss': '0.2309', 'grad_norm': '2.516', 'learning_rate': '1.27e-06', 'entropy': '0.241', 'num_tokens': '6.817e+06', 'mean_token_accuracy': '0.9234', 'epoch': '2.565'}
+{'loss': '0.2352', 'grad_norm': '2.922', 'learning_rate': '1.14e-06', 'entropy': '0.2478', 'num_tokens': '6.879e+06', 'mean_token_accuracy': '0.9226', 'epoch': '2.589'}
+{'eval_loss': '0.2946', 'eval_runtime': '17.57', 'eval_samples_per_second': '20.38', 'eval_steps_per_second': '5.122', 'eval_entropy': '0.2588', 'eval_num_tokens': '6.879e+06', 'eval_mean_token_accuracy': '0.9055', 'epoch': '2.589'}
+{'loss': '0.2466', 'grad_norm': '2.734', 'learning_rate': '1.016e-06', 'entropy': '0.2597', 'num_tokens': '6.94e+06', 'mean_token_accuracy': '0.9183', 'epoch': '2.612'}
+{'loss': '0.2475', 'grad_norm': '2.312', 'learning_rate': '8.99e-07', 'entropy': '0.2483', 'num_tokens': '6.999e+06', 'mean_token_accuracy': '0.9197', 'epoch': '2.636'}
+{'loss': '0.2481', 'grad_norm': '2.594', 'learning_rate': '7.89e-07', 'entropy': '0.258', 'num_tokens': '7.06e+06', 'mean_token_accuracy': '0.9181', 'epoch': '2.66'}
+{'loss': '0.2407', 'grad_norm': '2.266', 'learning_rate': '6.858e-07', 'entropy': '0.2527', 'num_tokens': '7.123e+06', 'mean_token_accuracy': '0.92', 'epoch': '2.683'}
+{'loss': '0.2454', 'grad_norm': '2.578', 'learning_rate': '5.896e-07', 'entropy': '0.2565', 'num_tokens': '7.185e+06', 'mean_token_accuracy': '0.9195', 'epoch': '2.707'}
+{'loss': '0.243', 'grad_norm': '2.812', 'learning_rate': '5.005e-07', 'entropy': '0.2572', 'num_tokens': '7.248e+06', 'mean_token_accuracy': '0.9188', 'epoch': '2.73'}
+{'loss': '0.2486', 'grad_norm': '2.359', 'learning_rate': '4.185e-07', 'entropy': '0.254', 'num_tokens': '7.31e+06', 'mean_token_accuracy': '0.9181', 'epoch': '2.754'}
+{'loss': '0.2493', 'grad_norm': '2.562', 'learning_rate': '3.437e-07', 'entropy': '0.2551', 'num_tokens': '7.37e+06', 'mean_token_accuracy': '0.9187', 'epoch': '2.777'}
+{'loss': '0.2522', 'grad_norm': '2.125', 'learning_rate': '2.761e-07', 'entropy': '0.2607', 'num_tokens': '7.432e+06', 'mean_token_accuracy': '0.9173', 'epoch': '2.801'}
+{'loss': '0.2348', 'grad_norm': '2.516', 'learning_rate': '2.159e-07', 'entropy': '0.2433', 'num_tokens': '7.492e+06', 'mean_token_accuracy': '0.9234', 'epoch': '2.824'}
+{'eval_loss': '0.2945', 'eval_runtime': '17.86', 'eval_samples_per_second': '20.04', 'eval_steps_per_second': '5.039', 'eval_entropy': '0.2588', 'eval_num_tokens': '7.492e+06', 'eval_mean_token_accuracy': '0.9055', 'epoch': '2.824'}
+2026-06-10 22:56:08,687 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:56:12,872 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 22:56:12,973 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:56:13,081 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+2026-06-10 22:56:32,929 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.2564', 'grad_norm': '2.422', 'learning_rate': '1.629e-07', 'entropy': '0.2646', 'num_tokens': '7.555e+06', 'mean_token_accuracy': '0.9172', 'epoch': '2.848'}
+2026-06-10 22:56:53,267 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 22:56:53,365 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+{'loss': '0.2559', 'grad_norm': '2.609', 'learning_rate': '1.174e-07', 'entropy': '0.2649', 'num_tokens': '7.616e+06', 'mean_token_accuracy': '0.9166', 'epoch': '2.872'}
+2026-06-10 22:57:25,991 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+{'loss': '0.2364', 'grad_norm': '2.406', 'learning_rate': '7.927e-08', 'entropy': '0.2428', 'num_tokens': '7.683e+06', 'mean_token_accuracy': '0.9222', 'epoch': '2.895'}
+{'loss': '0.2344', 'grad_norm': '2.547', 'learning_rate': '4.857e-08', 'entropy': '0.2405', 'num_tokens': '7.744e+06', 'mean_token_accuracy': '0.9235', 'epoch': '2.919'}
+{'loss': '0.2502', 'grad_norm': '2.719', 'learning_rate': '2.535e-08', 'entropy': '0.2546', 'num_tokens': '7.805e+06', 'mean_token_accuracy': '0.9176', 'epoch': '2.942'}
+{'loss': '0.2351', 'grad_norm': '2.406', 'learning_rate': '9.601e-09', 'entropy': '0.2432', 'num_tokens': '7.868e+06', 'mean_token_accuracy': '0.9225', 'epoch': '2.966'}
+{'loss': '0.2487', 'grad_norm': '2.531', 'learning_rate': '1.35e-09', 'entropy': '0.2559', 'num_tokens': '7.931e+06', 'mean_token_accuracy': '0.9178', 'epoch': '2.989'}
+{'eval_loss': '0.2946', 'eval_runtime': '17.73', 'eval_samples_per_second': '20.19', 'eval_steps_per_second': '5.076', 'eval_entropy': '0.2588', 'eval_num_tokens': '7.96e+06', 'eval_mean_token_accuracy': '0.9055', 'epoch': '3'}
+2026-06-10 23:00:54,099 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+{'train_runtime': '4198', 'train_samples_per_second': '4.854', 'train_steps_per_second': '0.304', 'train_loss': '0.2994', 'epoch': '3'}
+2026-06-10 23:00:58,190 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 23:00:58,351 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 23:00:58,456 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+2026-06-10 23:00:58,530 INFO HTTP Request: GET https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/xet-write-token/main "HTTP/1.1 200 OK"
+2026-06-10 23:01:18,819 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+2026-06-10 23:01:43,841 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 23:01:43,932 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+2026-06-10 23:02:16,826 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/commit/main "HTTP/1.1 200 OK"
+2026-06-10 23:02:16,831 INFO Saving model to /workspace/qwen3-math-rlvr/outputs/sft_v2_checkpoint
+2026-06-10 23:02:34,667 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 23:02:38,882 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 23:02:38,991 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 23:02:39,116 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+No files have been modified since last commit. Skipping to prevent empty commit.
+2026-06-10 23:02:48,233 WARNING No files have been modified since last commit. Skipping to prevent empty commit.
+2026-06-10 23:02:48,371 INFO HTTP Request: GET https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/revision/main "HTTP/1.1 200 OK"
+2026-06-10 23:02:48,632 INFO Final push to HuggingFace Hub: heyalexchoi/qwen3-1.7b-math-sft-v2
+2026-06-10 23:02:57,868 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 23:03:02,027 INFO HTTP Request: POST https://huggingface.co/api/validate-yaml "HTTP/1.1 200 OK"
+2026-06-10 23:03:02,149 INFO HTTP Request: POST https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/preupload/main "HTTP/1.1 200 OK"
+2026-06-10 23:03:02,234 INFO HTTP Request: POST https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2.git/info/lfs/objects/batch "HTTP/1.1 200 OK"
+No files have been modified since last commit. Skipping to prevent empty commit.
+2026-06-10 23:03:11,325 WARNING No files have been modified since last commit. Skipping to prevent empty commit.
+2026-06-10 23:03:11,630 INFO HTTP Request: GET https://huggingface.co/api/models/heyalexchoi/qwen3-1.7b-math-sft-v2/revision/main "HTTP/1.1 200 OK"
+2026-06-10 23:03:11,634 INFO Done pushing to HuggingFace Hub: heyalexchoi/qwen3-1.7b-math-sft-v2
+2026-06-10 23:03:11,637 INFO Done.
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33msft-v2-qwen3-1.7b-math-concise[0m at: [34mhttps://wandb.ai/heyalexchoi/qwen3-math-rlvr/runs/vccas49o[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20260610_215057-vccas49o/logs[0m

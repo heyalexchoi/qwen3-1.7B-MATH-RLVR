@@ -1,0 +1,263 @@
+{
+  "backend": "vllm",
+  "vllm": "0.22.1",
+  "transformers": "5.10.2",
+  "stop_ids": [
+    151645
+  ],
+  "records": [
+    {
+      "id": "test/algebra/1004.json",
+      "expected": "4",
+      "boxed": "4",
+      "ntok": 157,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "oth sides by 2: x = 8 \u00f7 2 = 4.\nVerify: 2\u2078 = 256 and 4\u2074 = 256 confirm equality.\n</think>\n\nThe value of $ x $ is \\boxed{4}",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/101.json",
+      "expected": "x \\in [-2,7]",
+      "boxed": "[-2, 7]",
+      "ntok": 313,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "inequality.\n</think>\n\nThe solution is the interval from $-2$ to $7$, inclusive. In interval notation: $\\boxed{[-2, 7]}$.",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1031.json",
+      "expected": "\\frac{11}{2}",
+      "boxed": "\\dfrac{11}{2}",
+      "ntok": 286,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "ro, so $g(x)$ is defined.\n</think>\n\nThe smallest real number $ x $ in the domain of $ g(x) $ is $\\boxed{\\dfrac{11}{2}}$.",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1035.json",
+      "expected": "3",
+      "boxed": "3",
+      "ntok": 259,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "1: $ 10T = 9T + T \\Rightarrow 10T = 10T $.\n</think>\n\nThe weight of one treek equals the weight of one squig. $\\boxed{3}$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1072.json",
+      "expected": "\\frac{243}{625}",
+      "boxed": "\\dfrac{243}{625}",
+      "ntok": 453,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "$ \\frac{125}{9} \\cdot \\frac{2187}{78125} = \\frac{243}{625} $.\n</think>\n\nThe eighth term is $ \\boxed{\\dfrac{243}{625}} $.",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1078.json",
+      "expected": "(-\\sqrt{3}, \\sqrt{3})",
+      "boxed": "(-\\sqrt{3}, \\sqrt{3})",
+      "ntok": 290,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": " < x < \u221a3.\nVerify: Test x = 1 and x = 2/3 satisfy the original inequality.\n</think>\n\n$$\n\\boxed{(-\\sqrt{3}, \\sqrt{3})}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1082.json",
+      "expected": "23",
+      "boxed": "17",
+      "ntok": 390,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "qrt{2} + 8\\sqrt{3}}{6}$\nVerify: All steps follow algebraic rules; denominators are minimized.\n</think>\n\n$$\n\\boxed{17}\n$$",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/109.json",
+      "expected": "0",
+      "boxed": "0",
+      "ntok": 186,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "ivide by 2: $ y = 0 $.  \nVerify: Plug $ (4, 0) $ into original equation: $ 3(4) + 2(0) = 12 $.\n</think>\n\n$$\n\\boxed{0}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1098.json",
+      "expected": "6+9i",
+      "boxed": "6 + 9i",
+      "ntok": 172,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "Final result: $6 + 9i$\nVerify: Recheck multiplication and subtraction steps for accuracy.\n</think>\n\n$$\n\\boxed{6 + 9i}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/114.json",
+      "expected": "4",
+      "boxed": "4",
+      "ntok": 246,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": " 64: $64^{\\frac{1}{3}} = 4$\nVerify: All steps align with exponent rules and arithmetic checks.\n</think>\n\n$$\n\\boxed{4}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1143.json",
+      "expected": "17",
+      "boxed": "73",
+      "ntok": 334,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "D(4) = 73 $, $ D(-4) = 73 $\nVerify: Minimum occurs at $ x = \\pm 4 $, confirming $ a^2 = 73 $.\n</think>\n\n$$\n\\boxed{73}\n$$",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1184.json",
+      "expected": "129",
+      "boxed": "150",
+      "ntok": 312,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "_5 \\times 6 = 25 \\times 6 = 150 $\nVerify: $ a_6 = 150 > 125 $\n</think>\n\nThe first term greater than 125 is $\\boxed{150}$",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1199.json",
+      "expected": "1",
+      "boxed": "1",
+      "ntok": 192,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "pply $ f^{-1} $: $ f^{-1}(2)=1 $.  \nVerify: All steps align with inverse function definitions.\n</think>\n\n$$\n\\boxed{1}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1214.json",
+      "expected": "1",
+      "boxed": "1",
+      "ntok": 219,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "$.  \nVerify: Substitute $ k = 1 $ into original equation: $ (3^1)^6 = 3^6 $, which holds true.\n</think>\n\n$$\n\\boxed{1}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1255.json",
+      "expected": "6",
+      "boxed": "6",
+      "ntok": 151,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": " into equation: $2^x = 2^6$\n3. Equate exponents: $x = 6$\nVerify: $2^6 = 64$ confirms the solution.\n</think>\n\n$\\boxed{6}$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1265.json",
+      "expected": "\\frac{3}{2}",
+      "boxed": "\\dfrac{3}{2}",
+      "ntok": 236,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "\\frac{3}{2} $\nVerify: $ 4^{3/2} = (2^2)^{3/2} = 2^3 = 8 $\n</think>\n\nThe power of 4 equal to 8 is $\\boxed{\\dfrac{3}{2}}$.",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1275.json",
+      "expected": "\\frac{\\sqrt{3}}{3}",
+      "boxed": "\\dfrac{1}{9}",
+      "ntok": 283,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": ": $\\frac{1}{9}$.\nVerify: All steps follow exponent rules and arithmetic checks out.\n</think>\n\n$$\n\\boxed{\\dfrac{1}{9}}\n$$",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1282.json",
+      "expected": "11",
+      "boxed": "12",
+      "ntok": 303,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": " to k=10 inclusive).\nVerify: Each k gives a unique x = (120 - k\u00b2)\u00b2, and all are non-negative.\n</think>\n\n$$\n\\boxed{12}\n$$",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1303.json",
+      "expected": "4",
+      "boxed": "4",
+      "ntok": 158,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": " \nVerify: Both roots are positive, and subtraction gives a non-negative result.\n</think>\n\nThe difference is $\\boxed{4}$.",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1332.json",
+      "expected": "9",
+      "boxed": "9",
+      "ntok": 304,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "2500} \\Rightarrow N_2 = 9 $\n</think>\n\nThe number of customers who would buy a television that costs \\$2500 is \\boxed{9}.",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1338.json",
+      "expected": "66",
+      "boxed": "66",
+      "ntok": 322,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "ify: Plug x = 66 into the original equation: \u221a[(66\u00b2 - 4*66 + 4)/16] = \u221a(4096/16) = \u221a256 = 16.\n</think>\n\n$$\n\\boxed{66}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1339.json",
+      "expected": "600",
+      "boxed": "600",
+      "ntok": 368,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "riginal equation: $ y = \\frac{30\\sqrt{6}}{\\sqrt{600}} = \\frac{30\\sqrt{6}}{10\\sqrt{6}} = 3 $.\n</think>\n\n$$\n\\boxed{600}\n$$",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1343.json",
+      "expected": "256",
+      "boxed": "16",
+      "ntok": 249,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "} = 2^{16/4} = 2^4 = 16 $  \nVerify: Each step follows exponent rules and root simplification.\n</think>\n\n$$\n\\boxed{16}\n$$",
+      "ok": false
+    },
+    {
+      "id": "test/algebra/1349.json",
+      "expected": "\\text{Evelyn}",
+      "boxed": "Evelyn",
+      "ntok": 202,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "\n5. Angela: 1.4 units / 6.8 units \u2248 0.21\nVerify: All speeds are positive and greater than zero.\n</think>\n\n\\boxed{Evelyn}",
+      "ok": true
+    },
+    {
+      "id": "test/algebra/1425.json",
+      "expected": "2",
+      "boxed": "2",
+      "ntok": 202,
+      "finish": "stop",
+      "degenerate": false,
+      "tail": "x = 3 $ and $ x = -3 $. Therefore, there are **2** values of $ x $ that make the expression undefined.  \n$$\n\\boxed{2}\n$$",
+      "ok": true
+    }
+  ],
+  "acc": 19,
+  "n": 25,
+  "degenerate_count": 0
+}
