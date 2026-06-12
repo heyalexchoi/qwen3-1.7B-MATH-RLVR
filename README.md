@@ -3,7 +3,7 @@
 RLVR (GRPO with verifiable math rewards) on Qwen3-1.7B, scored by
 [math-verify](https://github.com/huggingface/Math-Verify) on MATH-500.
 
-*Maintained by Claude Opus 4.8 · Last updated 2026-06-11.*
+*Maintained by Claude Opus 4.8 · Last updated 2026-06-12.*
 
 ## Status
 
@@ -14,7 +14,8 @@ RLVR (GRPO with verifiable math rewards) on Qwen3-1.7B, scored by
 | **Inference stack** ✅ | Pinned & verified: vLLM 0.22.1 (cu129) / transformers 5.10.2 / torch 2.11+cu129 — [`docs/vllm-stack-pin.md`](docs/vllm-stack-pin.md) |
 | **Concise SFT-v2 dataset** ✅ | 7,149 verify-gated traces, ~13× shorter (median 174 tok) — [`heyalexchoi/qwen3-math-concise-sft-v2`](https://huggingface.co/datasets/heyalexchoi/qwen3-math-concise-sft-v2) |
 | **SFT v2 training** ✅ | **~50% MATH-500 greedy** (49.4–50.6 across two greedy passes, vLLM batching noise), **74.6% pass@8**, 46.5% inferred (math-verify) — beats base (35.8), SFT v1 (40.2), and the GRPO POC (44.2). Termination cured: 500/500 clean stop, zero pegs. Model: [`heyalexchoi/qwen3-1.7b-math-sft-v2`](https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2). **Full analysis: [`docs/sft-v2-results.md`](docs/sft-v2-results.md)** (loss curves, level breakdown, failure modes, diagnosis) |
-| **GRPO v2 (from SFT v2)** ⏳ | Next: the original SFT→GRPO plan, now unblocked. Apply POC lessons: periodic greedy eval as early-stop, nonzero KL |
+| **Teacher-trace recovery + master** ✅ | 202/336 dropped traces recovered → **7,356 verified traces (97.9% of MATH train)**, backed up at [`heyalexchoi/qwen3-math-teacher-traces-32b`](https://huggingface.co/datasets/heyalexchoi/qwen3-math-teacher-traces-32b) (provenance in its card) |
+| **SFT v3** ⏳ | Next: clarity-first re-distillation + recovery traces, then GRPO. Plan & decisions: [`docs/sft-v3-plan.md`](docs/sft-v3-plan.md) |
 
 ## Quickstart
 
@@ -47,7 +48,8 @@ Pods: read [`docs/runpod.md`](docs/runpod.md) **before any pod operation** (setu
 | `scripts/math500_eval.py` + `rescore_math500.py` | **The eval path** (generate → math-verify score). One path for base/SFT/GRPO via `--format {completion,chat}` |
 | `scripts/sft_train.py`, `grpo_train.py` | Training |
 | `scripts/rewrite_full.py` | **Concise-distillation pipeline** (main pass + `--retry-failures`); prompt lives here, single source of truth |
-| `scripts/prepare_data.py`, `generate_traces_32b.py`, `rescore_mathverify.py`, `rerun_truncated.py` | Source-trace pipeline (how the 7,154 correct 32B traces were made) |
+| `scripts/prepare_data.py`, `generate_traces_32b.py`, `rescore_mathverify.py`, `rerun_truncated.py`, `recover_dropped_traces.py` | Source-trace pipeline (how the 7,356-trace master was made) |
+| `docs/sft-v3-plan.md` | **SFT v3 plan** — data decisions, v3 prompt rationale, run sequence |
 | `scripts/vllm_parity_canary.py` | vLLM-vs-HF parity diagnostic (used to validate the stack pin) |
 | `scripts/fix_sft_tokenizer.py`, `prompts.py`, `setup_runpod_training.sh` | Support |
 | `requirements-stack.txt` | **Pinned v2 stack** (train = eval = rollout) |
