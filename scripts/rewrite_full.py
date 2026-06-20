@@ -34,7 +34,7 @@ from pathlib import Path
 
 import requests
 
-TRACES = "data/traces/qwen32b_math_traces_rerun_mv_rescored.jsonl"
+TRACES = "data/traces/qwen32b_math_traces_master.jsonl"  # 7,356 verified (incl. 202 recovered)
 MODEL = "qwen/qwen3-32b"
 BASE_URL = "https://openrouter.ai/api/v1"
 
@@ -67,6 +67,48 @@ SYSTEM_RETRY = SYSTEM.replace(
     "The solution below is ALREADY correct and verified — do NOT re-derive it from scratch. "
     "Think only BRIEFLY about how to compress it (keep your reasoning short). You MUST then emit "
     "the student demonstration; never end without the ===SOLUTION=== section.")
+
+# --- v3 prompt (2026-06-20, reviewed with Alex) ------------------------------
+# Changes vs v2, mapped to the SFT-v2 failure modes (docs/sft-v2-results.md §4):
+#   clarity-first framing, no token target (length is a data-filter concern);
+#   Target states one brief reason for the asked quantity/form                  -> reasoned answers
+#   Classify includes a plan-check (precondition confirmed before committing)  -> 4.2 wrong plan
+#   Verify = substitute the answer back into the ORIGINAL problem, arithmetic
+#   shown (independent of the derivation, so it can actually fail)             -> 4.1 decorative Verify
+#   error-episode preservation start-to-finish (Target/Setup/Solve), real only -> 4.1 recovery behavior
+#   canonical answer-form clause (bare math-verify-parseable value)            -> L1 (drops _variants reliance)
+SYSTEM_V3 = """You are an expert teacher writing a CLEAR, easy-to-follow demonstration solution that a small (1.7B) student model will learn to imitate. You are given a verbose but correct solution; the verbosity is noise. Your job is to remove the noise and make the solution CLEAR — and, as a result, shorter.
+
+Think freely first (in your own reasoning) about how to structure the demonstration. Then output ONLY the student demonstration, as exactly two sections separated by the literal marker lines below:
+
+===REASONING===
+Target: what is asked, the answer type, and one brief reason it's that quantity/form.
+Classify: name the problem type and the method/template that solves it, plus one line confirming WHY it applies (the precondition it needs, checked against the problem). Then commit — no alternatives beyond at most one rejected.
+Setup: restate the problem in the method's canonical form (define variables / write the equations).
+Solve:
+1. step (one concrete computation or deduction)
+2. step
+...
+Verify: substitute the final answer back into the ORIGINAL problem statement and check it satisfies every stated condition — SHOW the arithmetic of this check, never just assert it. Only if substitution is impossible for this problem type (e.g. "count the ways", "find the minimum") do the cheapest independent sanity check available (recount a small case, check bounds/parity/units) and name which.
+===SOLUTION===
+short clean final solution, ending in \\boxed{ANSWER}
+
+RULES for the demonstration:
+- KEEP every arithmetic and algebraic step explicit — never skip a computation. The student CANNOT do multi-digit arithmetic in its head: show every step it could not reconstruct itself. Do not rely on your own capacity.
+- Keep it tight — no wandering or repetition. The one canonical restatement in Setup and the per-step self-checks are required and stay; cut everything redundant on top of those: restating the problem again later, mid-solution recaps, re-deriving a result already shown, end-of-section summaries. One template, executed once.
+- Mid-solve checks: where a step produces something cheaply falsifiable (a root you can plug in, a sum you can re-add), you MAY add one line "check: <the arithmetic>". Never add rhetorical checks ("this looks right").
+- ERROR EPISODES: if the source solution contains a GENUINE mistake the author later caught and fixed — a misread of what's asked, a wrong setup/method, or a computation slip — preserve exactly ONE such episode at the point it occurred (Target, Setup, or Solve), formatted as: the wrong step, then "check: <the test that fails>", then "fix: <corrected step>". If the source has no genuine caught mistake, do NOT invent one — most solutions have none.
+- Preserve the correct final answer exactly.
+- Canonical answer form: the boxed answer must be a bare math-verify-parseable value — digits not words, no \\text{}/\\mbox{}/units, simplest form.
+- Clarity is the goal; length is whatever clarity requires. Do not pad, and never compress away a needed step."""
+
+SYSTEM_V3_RETRY = SYSTEM_V3.replace(
+    "Think freely first (in your own reasoning) about how to structure the demonstration.",
+    "The solution below is ALREADY correct and verified — do NOT re-derive it from scratch. "
+    "Think only BRIEFLY about how to restructure it (keep your reasoning short). You MUST then emit "
+    "the student demonstration; never end without the ===SOLUTION=== section.")
+
+PROMPTS = {"v2": (SYSTEM, SYSTEM_RETRY), "v3": (SYSTEM_V3, SYSTEM_V3_RETRY)}
 
 USER = """Problem:
 {problem}
@@ -214,16 +256,24 @@ def main():
     ap.add_argument("--workers", type=int, default=24)
     ap.add_argument("--limit", type=int, default=0, help="0 = all; else stratified subset")
     ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--out", default="data/concise/concise_sft_v2.jsonl")
+    ap.add_argument("--out", default=None,
+                    help="output JSONL; default auto-derives from --prompt "
+                         "(data/concise/concise_sft_<prompt>.jsonl)")
+    ap.add_argument("--prompt", choices=sorted(PROMPTS), default="v3",
+                    help="distillation prompt version (v2 = original; v3 = clarity-first, "
+                         "plan-check, substitute-back Verify, conditional error episodes)")
+    ap.add_argument("--traces", default=TRACES, help="input teacher-traces JSONL")
     ap.add_argument("--retry-failures", action="store_true",
                     help="re-run only the failed records in --out (truncation fix: retry prompt, "
                          "bigger budget, follow-up emit). Rewrites --out in place.")
     ap.add_argument("--retry-max-tokens", type=int, default=16000)
     args = ap.parse_args()
+    if args.out is None:
+        args.out = f"data/concise/concise_sft_{args.prompt}.jsonl"
 
     # Load all correct traces
     all_correct = []
-    for line in open(TRACES):
+    for line in open(args.traces):
         d = json.loads(line)
         if d.get("correct_mathverify"):
             all_correct.append(d)
@@ -261,17 +311,19 @@ def main():
     todo = [d for d in work if d["id"] not in done_ids]
     print(f"Total correct: {len(all_correct)}  selected: {len(work)}  "
           f"already done: {len(done_ids & {d['id'] for d in work})}  TODO: {len(todo)}")
-    print(f"workers={args.workers} target~{args.target_tokens}tok temp={args.temp} out={args.out}")
+    print(f"prompt={args.prompt} workers={args.workers} temp={args.temp} out={args.out}")
     if not todo:
         print("Nothing to do."); _summarize(out_path); return
 
+    system_sel, _ = PROMPTS[args.prompt]
     key = get_key()
     lock = threading.Lock()
     fh = open(out_path, "a")
     t0 = time.time()
     n_done = 0
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = {ex.submit(process_one, key, d, args.target_tokens, args.temp): d for d in todo}
+        futs = {ex.submit(process_one, key, d, args.target_tokens, args.temp,
+                          system_sel): d for d in todo}
         for fut in as_completed(futs):
             rec = fut.result()
             rec["verify_ok"] = mv_ok(rec["boxed"], rec["expected"])  # main-thread gate
@@ -310,9 +362,10 @@ def retry_failures(args, all_correct):
     fixed = {}
     recovered = 0
     t0 = time.time(); n = 0
+    retry_sys = PROMPTS[args.prompt][1]
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         futs = {ex.submit(process_one, key, d, args.target_tokens, args.temp,
-                          SYSTEM_RETRY, args.retry_max_tokens, True): d for d in redo}
+                          retry_sys, args.retry_max_tokens, True): d for d in redo}
         for fut in as_completed(futs):
             rec = fut.result()
             rec["verify_ok"] = mv_ok(rec["boxed"], rec["expected"])

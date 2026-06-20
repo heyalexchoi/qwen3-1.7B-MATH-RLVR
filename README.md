@@ -50,6 +50,7 @@ Pods: read [`docs/runpod.md`](docs/runpod.md) **before any pod operation** (setu
 | `scripts/rewrite_full.py` | **Concise-distillation pipeline** (main pass + `--retry-failures`); prompt lives here, single source of truth |
 | `scripts/prepare_data.py`, `generate_traces_32b.py`, `rescore_mathverify.py`, `rerun_truncated.py`, `recover_dropped_traces.py` | Source-trace pipeline (how the 7,356-trace master was made) |
 | `docs/sft-v3-plan.md` | **SFT v3 plan** — data decisions, v3 prompt rationale, run sequence |
+| `docs/learnings.md` | **Cross-experiment learnings** — durable lessons for the next clean run (canonical-format, don't-distill-out-verification, on-policy errors) |
 | `scripts/vllm_parity_canary.py` | vLLM-vs-HF parity diagnostic (used to validate the stack pin) |
 | `scripts/fix_sft_tokenizer.py`, `prompts.py`, `setup_runpod_training.sh` | Support |
 | `requirements-stack.txt` | **Pinned v2 stack** (train = eval = rollout) |
