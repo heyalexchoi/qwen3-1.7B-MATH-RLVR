@@ -89,7 +89,7 @@ Solve:
 1. step (one concrete computation or deduction)
 2. step
 ...
-Verify: substitute the final answer back into the ORIGINAL problem statement and check it satisfies every stated condition — SHOW the arithmetic of this check, never just assert it. Only if substitution is impossible for this problem type (e.g. "count the ways", "find the minimum") do the cheapest independent sanity check available (recount a small case, check bounds/parity/units) and name which.
+Verify: substitute the final answer back into the ORIGINAL problem statement and check it satisfies every stated condition — SHOW the arithmetic of this check, never just assert it. The check must be able to FAIL: test the answer with an operation INDEPENDENT of how you derived it — invert it (expand a factorization, differentiate an integral, square a root) or plug it into the original constraints — never replay the derivation's own computation. If the problem genuinely has no independent check (e.g. "evaluate this numeric expression"), recompute once by a visibly different grouping and say so. Only if substitution is impossible for this problem type (e.g. "count the ways", "find the minimum") do the cheapest independent sanity check available (recount a small case, check bounds/parity/units) and name which.
 ===SOLUTION===
 short clean final solution, ending in \\boxed{ANSWER}
 
