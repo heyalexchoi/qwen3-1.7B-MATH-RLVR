@@ -35,7 +35,8 @@ from pathlib import Path
 import requests
 
 TRACES = "data/traces/qwen32b_math_traces_master.jsonl"  # 7,356 verified (incl. 202 recovered)
-MODEL = "qwen/qwen3-32b"
+MODEL = "qwen/qwen3-235b-a22b-thinking-2507"  # v3 teacher: thorough independent Verify (vs 32b laziness)
+PROVIDER = "wandb"  # pin to WandB's subsidized $0.10/M endpoint; no fallback (errors rather than paying 15-30x)
 BASE_URL = "https://openrouter.ai/api/v1"
 
 SYSTEM = """You are an expert teacher creating a CONCISE, EASY-TO-FOLLOW demonstration solution that a small (1.7B) student model will learn to imitate. You are given a verbose but correct solution; distill it into the clearest possible compact demonstration reaching the SAME final answer.
@@ -173,11 +174,15 @@ def _post(key, messages, temp, max_tokens):
     """One OpenRouter chat call with retry. Returns (content, reasoning) or ('__ERROR__ ...', '')."""
     for attempt in range(5):
         try:
+            body = {"model": MODEL, "messages": messages,
+                    "temperature": temp, "top_p": 0.9, "max_tokens": max_tokens}
+            if PROVIDER:
+                # hard-pin: prefer this provider, never silently fall back to a pricier one
+                body["provider"] = {"order": [PROVIDER], "allow_fallbacks": False}
             r = requests.post(
                 f"{BASE_URL}/chat/completions",
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={"model": MODEL, "messages": messages,
-                      "temperature": temp, "top_p": 0.9, "max_tokens": max_tokens},
+                json=body,
                 timeout=600)
             if r.status_code in (429, 500, 502, 503):
                 time.sleep(min(2 ** attempt, 30)); continue
@@ -250,6 +255,7 @@ def process_one(key, d, target_tokens, temp, system=SYSTEM, max_tokens=8000, fol
 
 
 def main():
+    global MODEL, PROVIDER
     ap = argparse.ArgumentParser()
     ap.add_argument("--target-tokens", type=int, default=300)
     ap.add_argument("--temp", type=float, default=0.2)
@@ -267,7 +273,13 @@ def main():
                     help="re-run only the failed records in --out (truncation fix: retry prompt, "
                          "bigger budget, follow-up emit). Rewrites --out in place.")
     ap.add_argument("--retry-max-tokens", type=int, default=16000)
+    ap.add_argument("--model", default=MODEL,
+                    help=f"OpenRouter teacher model id (default {MODEL})")
+    ap.add_argument("--provider", default=PROVIDER,
+                    help=f"pin OpenRouter provider slug; no fallback (default {PROVIDER}). Pass '' to auto-route.")
     args = ap.parse_args()
+    MODEL = args.model
+    PROVIDER = args.provider
     if args.out is None:
         args.out = f"data/concise/concise_sft_{args.prompt}.jsonl"
 
@@ -311,7 +323,8 @@ def main():
     todo = [d for d in work if d["id"] not in done_ids]
     print(f"Total correct: {len(all_correct)}  selected: {len(work)}  "
           f"already done: {len(done_ids & {d['id'] for d in work})}  TODO: {len(todo)}")
-    print(f"prompt={args.prompt} workers={args.workers} temp={args.temp} out={args.out}")
+    print(f"model={MODEL} provider={PROVIDER or 'auto'} prompt={args.prompt} "
+          f"workers={args.workers} temp={args.temp} out={args.out}")
     if not todo:
         print("Nothing to do."); _summarize(out_path); return
 
