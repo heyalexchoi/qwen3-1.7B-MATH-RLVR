@@ -1,0 +1,46 @@
+# SFT v3a — Qwen3-1.7B-Base on concise-distillation v3 traces (clean-only; error episodes → v3b)
+# Dataset: heyalexchoi/qwen3-math-concise-sft-v3 (7,340 verify-gated, median ~309 tok)
+# Stack: pinned per requirements-stack.txt (tf 5.10.2 / torch 2.11+cu129 / vllm 0.22.1)
+# Trains from BASE (not sft-v2): v2 entrenched decorative-Verify priors. See docs/sft-v3-plan.md.
+
+model_name_or_path: Qwen/Qwen3-1.7B-Base
+attn_implementation: sdpa            # flash-attn has no prebuilt wheel for torch 2.11; sdpa fine at this seq len
+
+# EOS — REQUIRED for Qwen base + chat template: model must learn/emit <|im_end|>
+# as turn terminator and the saved generation_config must stop on it.
+eos_token: "<|im_end|>"
+
+# Sequence length: v3 student traces are longer than v2 (median ~309 vs ~174 tok; max ~1082).
+# Worst-case student+problem est ~1436 tok — 2560 covers everything with wide margin
+# (loader asserts nothing is truncated; a cut completion would teach non-termination).
+max_seq_length: 2560
+
+# Training — effective batch 16 (same as v2). batch 4 @ seq 2560 keeps the
+# fp32 CE logits transient (~6GB) comfortable on A40 48GB.
+num_train_epochs: 3
+per_device_train_batch_size: 4
+per_device_eval_batch_size: 4
+gradient_accumulation_steps: 4
+learning_rate: 2.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+weight_decay: 0.01
+max_grad_norm: 1.0
+
+bf16: true
+gradient_checkpointing: true
+optim: adamw_torch
+
+logging_steps: 10
+# Best-checkpoint selection: v2 eval loss plateaued ~epoch 1.9 while training continued to 3 —
+# keep the best eval_loss checkpoint, not just the last. save_steps must be a multiple of
+# eval_steps for load_best_model_at_end to find a matching save.
+eval_steps: 100
+save_steps: 100
+save_total_limit: 2
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+
+seed: 42
+dataloader_num_workers: 4

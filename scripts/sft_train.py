@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-SFT training — v2: concise-distillation traces (also supports v1 verbose-trace schema).
+SFT training — v3: concise-distillation traces (also supports v2 `completion` and v1 verbose schema).
 
-v2 input (default): data/concise/concise_sft_v2_trainable.jsonl — auto-downloaded from
-        HF dataset heyalexchoi/qwen3-math-concise-sft-v2 if missing locally.
-        Fields: problem, completion (string: '<think>...</think>\n\nsolution'). All
-        records are math-verify-gated upstream; no filtering needed here.
+v3 input (default): data/concise/concise_sft_v3_trainable.jsonl — auto-downloaded from
+        HF dataset heyalexchoi/qwen3-math-concise-sft-v3 if missing locally.
+        Fields: problem, student_trace (string: '<think>...</think>\n\nsolution' — the SFT
+        target). `teacher_reasoning` is the 235B scratchpad: provenance only, NOT a target.
+        All records are math-verify-gated upstream; no filtering needed here.
+v2 input: data/concise/concise_sft_v2_trainable.jsonl — fields: problem, completion.
 v1 input: data/traces/qwen32b_math_traces_rerun_mv_rescored.jsonl
         Fields: problem, full_response, correct_mathverify (filtered to True).
-Output: outputs/sft_v2_checkpoint/
+Output: outputs/sft_v3a_checkpoint/
 
 Uses TRL SFTTrainer with conversational prompt-completion format.
 SFTTrainer auto-applies the Qwen3 chat template and masks prompt tokens —
@@ -48,7 +50,7 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-HF_DATASET_REPO = "heyalexchoi/qwen3-math-concise-sft-v2"
+HF_DATASET_REPO = "heyalexchoi/qwen3-math-concise-sft-v3"
 
 
 def load_traces(data_path: str, max_seq_length: int) -> Dataset:
@@ -63,7 +65,7 @@ def load_traces(data_path: str, max_seq_length: int) -> Dataset:
 
     SFTTrainer handles chat-template application and prompt masking.
     """
-    if not os.path.exists(data_path) and "concise_sft_v2_trainable" in data_path:
+    if not os.path.exists(data_path) and "concise_sft_v3_trainable" in data_path:
         from huggingface_hub import hf_hub_download
         logger.info(f"{data_path} not found locally — downloading from {HF_DATASET_REPO}")
         Path(data_path).parent.mkdir(parents=True, exist_ok=True)
@@ -75,7 +77,11 @@ def load_traces(data_path: str, max_seq_length: int) -> Dataset:
     with open(data_path, "r") as f:
         for line in f:
             data = json.loads(line)
-            if "completion" in data:  # v2 concise schema — pre-gated
+            # v3 concise schema: training target is `student_trace` (<think>…</think> + solution).
+            # `teacher_reasoning` is the 235B scratchpad — provenance only, NEVER a target.
+            if "student_trace" in data:  # v3 — pre-gated (verify_ok & well_formed upstream)
+                target = data["student_trace"]
+            elif "completion" in data:  # v2 concise schema — pre-gated
                 target = data["completion"]
             elif data.get("correct_mathverify", False):  # v1 verbose schema
                 target = data["full_response"]
@@ -135,12 +141,12 @@ def main():
     parser.add_argument(
         "--data",
         type=str,
-        default="data/concise/concise_sft_v2_trainable.jsonl",
-        help="v2 concise traces (auto-downloads from HF if missing) or v1 verbose-trace jsonl",
+        default="data/concise/concise_sft_v3_trainable.jsonl",
+        help="v3 concise traces (auto-downloads from HF if missing); also accepts v2/v1 schema",
     )
-    parser.add_argument("--output", type=str, default="/workspace/qwen3-math-rlvr/outputs/sft_v2_checkpoint",
+    parser.add_argument("--output", type=str, default="/workspace/qwen3-math-rlvr/outputs/sft_v3a_checkpoint",
         help="Output dir — use absolute path to guarantee writes land on the volume")
-    parser.add_argument("--config", type=str, default="configs/sft_config_v2.yaml")
+    parser.add_argument("--config", type=str, default="configs/sft_config_v3.yaml")
     parser.add_argument("--smoke", action="store_true",
         help="Smoke test: 64 examples, 1 epoch, no wandb/hub — verifies TRL+tf stack and save path")
     parser.add_argument(
@@ -158,7 +164,7 @@ def main():
     parser.add_argument(
         "--hub_repo_id",
         type=str,
-        default="heyalexchoi/qwen3-1.7b-math-sft-v2",
+        default="heyalexchoi/qwen3-1.7b-math-sft-v3a",
         help="HuggingFace Hub repo ID for push_to_hub",
     )
     args = parser.parse_args()
@@ -268,7 +274,7 @@ def main():
         seed=config.get("seed", 42),
         dataloader_num_workers=config.get("dataloader_num_workers", 4),
         report_to="none" if args.smoke else "wandb",
-        run_name="sft-v2-qwen3-1.7b-math-concise",
+        run_name="sft-v3a-qwen3-1.7b-math-concise",
         dataset_text_field=None,  # using prompt/completion format, not text field
         # HF Hub backup: push each checkpoint so we have recovery if pod dies
         push_to_hub=args.push_to_hub,

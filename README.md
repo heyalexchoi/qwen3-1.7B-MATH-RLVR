@@ -3,7 +3,7 @@
 RLVR (GRPO with verifiable math rewards) on Qwen3-1.7B, scored by
 [math-verify](https://github.com/huggingface/Math-Verify) on MATH-500.
 
-*Maintained by Claude Opus 4.8 · Last updated 2026-06-12.*
+*Maintained by Claude Opus 4.8 · Last updated 2026-06-26.*
 
 ## Status
 
@@ -15,7 +15,8 @@ RLVR (GRPO with verifiable math rewards) on Qwen3-1.7B, scored by
 | **Concise SFT-v2 dataset** ✅ | 7,149 verify-gated traces, ~13× shorter (median 174 tok) — [`heyalexchoi/qwen3-math-concise-sft-v2`](https://huggingface.co/datasets/heyalexchoi/qwen3-math-concise-sft-v2) |
 | **SFT v2 training** ✅ | **~50% MATH-500 greedy** (49.4–50.6 across two greedy passes, vLLM batching noise), **74.6% pass@8**, 46.5% inferred (math-verify) — beats base (35.8), SFT v1 (40.2), and the GRPO POC (44.2). Termination cured: 500/500 clean stop, zero pegs. Model: [`heyalexchoi/qwen3-1.7b-math-sft-v2`](https://huggingface.co/heyalexchoi/qwen3-1.7b-math-sft-v2). **Full analysis: [`docs/sft-v2-results.md`](docs/sft-v2-results.md)** (loss curves, level breakdown, failure modes, diagnosis) |
 | **Teacher-trace recovery + master** ✅ | 202/336 dropped traces recovered → **7,356 verified traces (97.9% of MATH train)**, backed up at [`heyalexchoi/qwen3-math-teacher-traces-32b`](https://huggingface.co/datasets/heyalexchoi/qwen3-math-teacher-traces-32b) (provenance in its card) |
-| **SFT v3** ⏳ | Next: clarity-first re-distillation + recovery traces, then GRPO. Plan & decisions: [`docs/sft-v3-plan.md`](docs/sft-v3-plan.md) |
+| **Concise SFT-v3 dataset** ✅ | **7,340 verify-gated traces (99.8% yield)**, real substitute-back `Verify`, 235B-thinking teacher, ~7.5× shorter (median 309 tok) — [`heyalexchoi/qwen3-math-concise-sft-v3`](https://huggingface.co/datasets/heyalexchoi/qwen3-math-concise-sft-v3). Supersedes v2. Rationale: [`docs/teacher-selection-v3.md`](docs/teacher-selection-v3.md) |
+| **SFT v3a training** ⏳ | In progress: from-base SFT on the v3 dataset (clean-only; error episodes → v3b). Plan: [`docs/sft-v3-plan.md`](docs/sft-v3-plan.md) |
 
 ## Quickstart
 
@@ -31,12 +32,12 @@ python3 scripts/math500_eval.py --model <model-or-hf-repo> --checkpoint_step <N>
 python3 scripts/rescore_math500.py --input outputs/<...>_math500_results.json --upload
 
 # 4. Train:
-python3 scripts/sft_train.py    # SFT (v2: train on the HF dataset's `completion` field)
+python3 scripts/sft_train.py    # SFT v3a from base (trains on the HF v3 dataset's `student_trace` field)
 python3 scripts/grpo_train.py   # GRPO from base (POC config)
 
-# 5. Regenerate the concise dataset (OpenRouter, Qwen3-32B teacher):
-python3 scripts/rewrite_full.py --target-tokens 300 --temp 0.2 --workers 32 --out data/concise/concise_sft_v2.jsonl
-python3 scripts/rewrite_full.py --retry-failures --retry-max-tokens 16000 --out data/concise/concise_sft_v2.jsonl
+# 5. Regenerate the concise dataset (OpenRouter, Qwen3-235B-thinking teacher pinned to wandb):
+python3 scripts/rewrite_full.py --prompt v3 --workers 24
+python3 scripts/rewrite_full.py --prompt v3 --retry-failures --retry-max-tokens 16000
 ```
 
 Pods: read [`docs/runpod.md`](docs/runpod.md) **before any pod operation** (setup, SSH, pre-removal checklist).
