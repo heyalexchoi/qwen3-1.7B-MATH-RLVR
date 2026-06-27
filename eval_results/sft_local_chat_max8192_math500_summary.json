@@ -1,23 +1,23 @@
 {
-  "model": "heyalexchoi/qwen3-1.7b-math-sft",
+  "model": "heyalexchoi/qwen3-1.7b-math-sft-v3a",
   "format": "chat",
-  "backend": "hf",
+  "backend": "vllm",
   "hf_revision": "main",
   "checkpoint_step": null,
   "provenance": {
     "git_commit": null,
     "git_describe": null,
     "git_dirty": false,
-    "command": "python scripts/math500_eval.py --model heyalexchoi/qwen3-1.7b-math-sft --format chat --backend hf --n_samples 0 --upload_every 25",
+    "command": "python3 scripts/math500_eval.py --model heyalexchoi/qwen3-1.7b-math-sft-v3a --format chat",
     "weights_sha256": null,
-    "backend": "hf",
-    "vllm_version": null,
-    "transformers_version": "5.5.3",
-    "torch_version": "2.4.1+cu124",
-    "run_utc": "2026-06-08T00:23:01.469232Z"
+    "backend": "vllm",
+    "vllm_version": "0.22.1",
+    "transformers_version": "5.10.2",
+    "torch_version": "2.11.0+cu129",
+    "run_utc": "2026-06-27T21:28:36.164529Z"
   },
   "max_new_tokens": 8192,
-  "n_samples_pass8": 0,
+  "n_samples_pass8": 8,
   "temperature": 0.6,
   "top_p": 0.95,
   "top_k": 20,
@@ -42,33 +42,33 @@
     }
   },
   "live_metrics_math_verify": {
-    "greedy_pass1": 0.402,
-    "pass_at_k": 0.0,
+    "greedy_pass1": 0.482,
+    "pass_at_k": 0.744,
     "n_problems": 500,
     "by_level": {
       "1": {
-        "greedy_pass1": 0.6977,
-        "pass_at_k": 0.0,
+        "greedy_pass1": 0.8372,
+        "pass_at_k": 1.0,
         "n": 43
       },
       "2": {
         "greedy_pass1": 0.6444,
-        "pass_at_k": 0.0,
+        "pass_at_k": 0.9222,
         "n": 90
       },
       "3": {
-        "greedy_pass1": 0.4571,
-        "pass_at_k": 0.0,
+        "greedy_pass1": 0.5524,
+        "pass_at_k": 0.8857,
         "n": 105
       },
       "4": {
-        "greedy_pass1": 0.3438,
-        "pass_at_k": 0.0,
+        "greedy_pass1": 0.4766,
+        "pass_at_k": 0.7344,
         "n": 128
       },
       "5": {
-        "greedy_pass1": 0.1567,
-        "pass_at_k": 0.0,
+        "greedy_pass1": 0.209,
+        "pass_at_k": 0.4403,
         "n": 134
       }
     }

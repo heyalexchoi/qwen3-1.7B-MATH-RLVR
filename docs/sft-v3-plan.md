@@ -110,3 +110,38 @@ chat-format SFT models. Marginal GPU for marginal gain; skip unless we want the 
 under one roof. (The stray `outputs/_v3a_pod_rescue/base_qwen3-1.7b_math500_eval.log` = 31.6/58.4 is a
 non-canonical base run from the *old* inline-scoring flow; provenance murky, **discarded** — do not
 reconcile 31.6 vs 35.8, that's exactly the stack-mismatch noise README finding #1 warns about.)
+
+## 5. v3a eval RESULT (2026-06-27) — did NOT clear the v2 bar
+
+Ran the headline eval as planned (shipped best, `--format chat`, pinned vLLM 0.22.1 / tf 5.10.2 on
+an L40S). Authoritative `rescore_math500.py` (math-verify):
+
+| metric | v3a | **v2 bar** | Δ |
+|---|---|---|---|
+| greedy pass@1 | **48.2%** (241/500) | 50.6% | **−2.4pt** |
+| pass@8 | **74.4%** (372/500) | 74.6% | −0.2pt (1 problem) = flat |
+| inferred pass@1 (c/n) | 45.15% | 46.48% | — |
+
+Greedy by level: L1 83.7 / L2 64.4 / L3 55.2 / L4 47.7 / L5 20.9. Termination **healthy** — greedy
+median 587 tok, p90 1170, only **8/500 pegged at 8192 (1.6%)**, no v1 disease (longer than v2's ~260
+median, as expected from the honest-Verify section). Provenance in the result JSON confirms the stack
+matched training exactly (vllm 0.22.1 / tf 5.10.2 / torch 2.11.0+cu129).
+
+**Verdict:** the honest-Verify distillation (v3's only deliberate change vs v2) did **not** translate
+to a MATH-500 gain. Greedy is *modestly below* (2.4pt ≈ 2× the single-run vLLM batching noise of
+1.2pt — so "slightly down," not a clean tie and not an n=1 "regression"); pass@8 is flat. The
+dataset-quality wins are real (non-decorative Verify, healthy termination) but didn't move the metric.
+This is the input to Alex's go/no-go on the rest of the sequence (v3b on-policy / GRPO). The
+final-checkpoint (ep3) eval was **skipped** — below bar regardless of checkpoint, gap inside noise.
+
+A *free, local* follow-up (no GPU) is the real next analysis if we continue: a per-problem diff of
+v2-correct&v3a-wrong vs the reverse, to see whether honest-Verify caused specific regressions or just
+reshuffled. Both sample sets are on HF / local. Offered, not auto-run — Alex-directed.
+
+**Op note (root cause of a near-miss):** `eval_results/` is git-tracked, so cloning the repo to the
+pod shipped stale v2 outputs, and `math500_eval.py` *appends* to `samples.jsonl` → the uploaded
+samples carried 500 stale `qwen3-1.7b-math-sft` greedy rows. Caught before it touched any number
+(headline comes from `results.json`, which is keyed/overwritten and was clean; the inline live number,
+the rescore, and the 500-count all triangulated). Cleaned + re-uploaded (4500 v3a-only rows). Fix for
+next time: clear `eval_results/` pre-eval on the pod, or make the eval overwrite (not append)
+`samples.jsonl`.
