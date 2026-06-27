@@ -62,3 +62,51 @@ Key decisions (debated 2026-06-11/12):
 7. **GRPO v2** from the winner. Mandatory periodic greedy eval (no eval loss in GRPO).
 
 Training: from **base**, not from sft-v2 (entrenched decorative-Verify priors; ~$1/70min per run).
+
+## 4. v3a MATH-500 eval plan (staged 2026-06-27 — needs explicit go before pod launch)
+
+v3a is trained and on HF (`heyalexchoi/qwen3-1.7b-math-sft-v3a`). The repo carries **both**
+checkpoints: top-level weights = the shipped **best** (`load_best_model_at_end`, step 800 / epoch
+1.83, eval_loss 0.34141); the `last-checkpoint/` subfolder = the **final** (step 1308 / epoch 3.0,
+eval_loss 0.34171). The plateau gap is 0.0003 — within noise (see best-vs-final below).
+
+**Methodology — pinned for apples-to-apples with v2** (the only comparison that matters: did v3's
+honest-Verify dataset beat v2's decorative-Verify one):
+- Same stack: vLLM 0.22.1+cu129 / tf 5.10.2 (`requirements-stack.txt`) — identical to the v2 eval.
+- `--format chat` defaults (Qwen3 thinking): max_new_tokens 8192, temp 0.6, top_p 0.95, top_k 20,
+  repetition_penalty 1.05. pass@1 (greedy) + pass@8.
+- Scorer: `rescore_math500.py` (math-verify, authoritative). Upload generations + results to
+  `heyalexchoi/qwen3-math-rlvr-results`; append a RUNS.jsonl row.
+
+**Headline run (the deliverable):** the shipped best.
+```bash
+python scripts/math500_eval.py --model heyalexchoi/qwen3-1.7b-math-sft-v3a --format chat
+python scripts/rescore_math500.py --input eval_results/<...>_results.json --upload
+```
+
+**Success ladder** (greedy / pass@8, all math-verify): base 35.8 / 65.0 → SFT-v1 40.2 → GRPO-3000
+44.2 → **SFT-v2 50.6 / 74.6 ← the bar to beat**. v3a's job is to clear v2; the honest-Verify
+distillation is the only deliberate change.
+
+**Best-vs-final (optional, a teaching demo — not a tiebreaker):** the 0.0003 eval-loss gap will land
+*inside* vLLM continuous-batching nondeterminism (v2 showed 1.2pt: 49.4 vs 50.6 on the *same*
+checkpoint). So this run is expected to be indistinguishable; run it only to *show* that, not to
+decide anything. eval-loss early-stop is the standard default and is what we ship; the real arbiter
+for a generation task is the downstream metric, not the token-CE proxy. To eval the final:
+```bash
+python - <<'PY'
+from huggingface_hub import snapshot_download
+snapshot_download("heyalexchoi/qwen3-1.7b-math-sft-v3a", allow_patterns="last-checkpoint/*",
+                  local_dir="ckpt_final")   # last-checkpoint is a subfolder, not a hub revision
+PY
+python scripts/math500_eval.py --model ckpt_final/last-checkpoint --format chat
+```
+
+**Base re-baseline (optional, low value):** canonical base 35.8/65.0 is POC-era (2026-04-11,
+pre-pinned-stack; re-verified 05-30). The v3a-vs-v2 headline needs no base run (both chat-format under
+the pinned stack). A fresh base eval would only re-anchor the ladder under one stack — and base uses
+`--format completion` (few-shot), so a stack-matched base number is *still* not regime-matched to the
+chat-format SFT models. Marginal GPU for marginal gain; skip unless we want the whole ladder re-run
+under one roof. (The stray `outputs/_v3a_pod_rescue/base_qwen3-1.7b_math500_eval.log` = 31.6/58.4 is a
+non-canonical base run from the *old* inline-scoring flow; provenance murky, **discarded** — do not
+reconcile 31.6 vs 35.8, that's exactly the stack-mismatch noise README finding #1 warns about.)
