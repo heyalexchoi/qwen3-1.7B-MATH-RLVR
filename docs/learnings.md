@@ -8,6 +8,39 @@ forward, and what it would have saved. Newest first.
 
 ---
 
+## L4 · A behavior at 0.5% density is present but not *learned* — verification cured, recovery not
+
+**Context.** SFT-v3a eval post-mortem (did not clear the v2 bar: 48.2 vs 50.6 greedy; pass@8 flat).
+
+**What happened.** v3's honest-Verify distillation *worked* — at eval the student now generates
+genuine independent re-checks that can disagree with its own answer (the v2 decorative-Verify disease
+is cured; 33/500 greedy responses raise an explicit disagreement cue, 0/500 fabricate a false
+equality). But it has **no policy for what to do when the check disagrees**: it never overrides its
+boxed answer (0/500 box two distinct values), and 23 of those 33 cued responses end *wrong*. It
+detects the conflict and can't recover — and pays a ~2.1× length tax for the extra verification. Net
+wash on the metric.
+
+Root cause: the training data demonstrated catch-and-correct (`check:`→`fix:`) in only **~0.5% of
+traces (35–40 / 7,356)**. The v3 plan budgeted ~10–15%; the gap is *not* a rewrite bug — verified
+*correct* traces from a strong teacher genuinely rarely contain a caught-and-fixed error. Their
+"wait" / "mistake" tokens (source rate 64%) are overwhelmingly thinking-model hedging and
+self-confirmation, which the clarity-first rewrite correctly compresses (hand-audited: 5/5
+hard-signal "dropped corrections" were false positives — meta-commentary or confirmatory
+re-derivations, not real fixes).
+
+**Rule going forward.** Distilling a behavior's *form* (verify that can fail) does not install the
+*policy* that uses it (act on a disagreement). The policy needs episodes at learnable density, and
+natural correct traces won't supply them — you must **manufacture** them. This is exactly v3b's job:
+on-policy errors from v3a, corrected at 20–30% density (L3). Don't retrain v3a to add episodes — it's
+the clean ablation baseline; the episodes belong in v3b.
+
+**Process note (cost: a wrong conclusion, caught on review).** The `error` field in the distilled
+dataset is `content.startswith("__ERROR__")` — an **API-failure flag**, not a "trace contains a
+correction" flag. `error==0` was misread as "no correction episodes exist"; the real signal is the
+`fix:` marker count. Check what a column *means* before reasoning from it.
+
+---
+
 ## L1 · Bake the canonical answer format into one shared prompt, from day one
 
 **Context.** Generating the Qwen3-32B teacher traces, then distilling them, then SFT'ing the student.

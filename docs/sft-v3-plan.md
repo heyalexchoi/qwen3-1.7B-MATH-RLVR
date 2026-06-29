@@ -129,14 +129,31 @@ matched training exactly (vllm 0.22.1 / tf 5.10.2 / torch 2.11.0+cu129).
 
 **Verdict:** the honest-Verify distillation (v3's only deliberate change vs v2) did **not** translate
 to a MATH-500 gain. Greedy is *modestly below* (2.4pt ≈ 2× the single-run vLLM batching noise of
-1.2pt — so "slightly down," not a clean tie and not an n=1 "regression"); pass@8 is flat. The
-dataset-quality wins are real (non-decorative Verify, healthy termination) but didn't move the metric.
-This is the input to Alex's go/no-go on the rest of the sequence (v3b on-policy / GRPO). The
-final-checkpoint (ep3) eval was **skipped** — below bar regardless of checkpoint, gap inside noise.
+1.2pt); pass@8 is flat (capability unchanged — this, not eval-loss, is the capability signal;
+eval-loss is token-CE on reproducing teacher text, not problem-solving). The dataset-quality wins are
+real but didn't move the metric. The final-checkpoint (ep3) eval was **skipped** — below bar
+regardless, gap inside noise.
 
-A *free, local* follow-up (no GPU) is the real next analysis if we continue: a per-problem diff of
-v2-correct&v3a-wrong vs the reverse, to see whether honest-Verify caused specific regressions or just
-reshuffled. Both sample sets are on HF / local. Offered, not auto-run — Alex-directed.
+**Mechanism (trace + dataset analysis, 2026-06-29 — see [`learnings.md`](learnings.md) L4).** The
+honest-Verify *worked*: at eval the student generates genuine re-checks that disagree with its own
+answer (33/500 greedy raise a disagreement cue, 0/500 fabricate a false equality — v2's decorative
+disease cured). But it has **no policy to act on a disagreement**: 0/500 box two distinct values, and
+23/33 cued responses end wrong — detect-but-can't-recover, at a ~2.1× length tax. Cause: catch-and-
+correct (`check:`→`fix:`) appears in only **~0.5% of training traces (35–40 / 7,356)**, far below the
+~10–15% this plan budgeted. That gap is **not a rewrite bug** — verified-correct strong-teacher traces
+genuinely rarely contain a caught-and-fixed error (their abundant "wait"/"mistake" tokens are hedging,
+correctly compressed; hand-audit: 5/5 "dropped corrections" were false positives). So a behavior at
+0.5% density is demonstrated but not *learned*.
+
+**Implication for the sequence.** Don't retrain v3a (it's the clean ablation baseline; mining the
+source for more natural episodes is low-value — too rare, wrong error-distribution). The missing
+recovery policy is precisely v3b's job: manufacture it on-policy from v3a's own k=8 errors at 20–30%
+density (§3 steps 4–5, L3). The 0.5% existing `fix:` episodes serve as format templates. **Decision:
+proceed to v3b.**
+
+(Note: the `error` field in the distilled dataset is an API-failure flag — `startswith("__ERROR__")`
+— not a correction-present flag; the real signal is the `fix:` marker count. An earlier read of
+`error==0` as "no corrections exist" was wrong; see L4 process note.)
 
 **Op note (root cause of a near-miss):** `eval_results/` is git-tracked, so cloning the repo to the
 pod shipped stale v2 outputs, and `math500_eval.py` *appends* to `samples.jsonl` → the uploaded
