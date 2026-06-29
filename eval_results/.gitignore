@@ -3,6 +3,13 @@
 # git (a chat run is ~27MB; git history would bloat permanently).
 *_results.json
 *_samples.jsonl
+# Rescored files embed the FULL per-sample responses (pass1/pass8) too — ~9MB each.
+# They are durable on HF and regenerable from *_results.json via rescore_math500.py
+# (no GPU), so they don't belong in git either. (Was an oversight: the two patterns
+# above missed *_mv_rescored.json, and two of them got committed — caught 2026-06-27.)
+*_mv_rescored.json
+# Harvest files (collect_errors.py) embed full wrong rollouts — large, durable on HF.
+*_harvest.jsonl
 
 # Git tracks ONLY the small metrics-only summary + this dir's docs.
 # (*_summary.json, README.md, .gitignore do not match the patterns above.)
